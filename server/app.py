@@ -85,4 +85,14 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self,format,*args): pass
 
 if __name__=="__main__":
+    if os.environ.get("JARVIS_MONITOR_STARTUP_PROBE")=="1":
+        try:
+            from project_monitor import report as monitor_report
+            check=monitor_report()
+            print("JARVIS_MONITOR_PROBE "+json.dumps({
+                "github":[{"repository":x["repository"],"status":x["status"],"error":x["error"]} for x in check["github"]],
+                "railway":[{"project":x["project"],"status":x["status"],"error":x["error"]} for x in check["railway"]],
+                "summary":check["summary"]},ensure_ascii=False),flush=True)
+        except Exception as exc:
+            print("JARVIS_MONITOR_PROBE_ERROR "+type(exc).__name__,flush=True)
     ThreadingHTTPServer(("0.0.0.0",int(os.environ.get("PORT","8080"))),Handler).serve_forever()
