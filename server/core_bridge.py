@@ -22,7 +22,7 @@ def _services():
     owner=os.environ.get("JARVIS_OWNER_ID","").strip()
     if not owner:
         raise RuntimeError("JARVIS_OWNER_ID no configurado")
-    path=os.environ.get("JARVIS_CORE_DB_PATH",os.environ.get("JARVIS_CORE_DB_PATH",os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite")+".core")+".core")
+    path=os.environ.get("JARVIS_CORE_DB_PATH",os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite")+".core")
     principal=Principal(owner,PERMISSIONS)
     return ProjectRegistry(path,principal),ResponseComposer(path,principal),AuditedActions(path,principal,strict_policies=True)
 
@@ -39,11 +39,11 @@ def dispatch(method,path,data=None):
                 return 400,{"error":"invalid_parameters"}
             return 200,{"assessment":asdict(assess(**data))}
         if path.startswith("/v1/core/implementation/"):
-            engine=ImplementationEngine(os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite"),
+            engine=ImplementationEngine(os.environ.get("JARVIS_CORE_DB_PATH",os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite")+".core"),
                                         Principal(os.environ["JARVIS_OWNER_ID"],PERMISSIONS))
             if method=="POST" and path=="/v1/core/implementation/process":
                 if set(data)!={"limit"}:return 400,{"error":"invalid_parameters"}
-                worker=AnalysisWorker(os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite"),
+                worker=AnalysisWorker(os.environ.get("JARVIS_CORE_DB_PATH",os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite")+".core"),
                                       Principal(os.environ["JARVIS_OWNER_ID"],PERMISSIONS))
                 return 200,{"processed":worker.process_once(data["limit"]),
                             "mode":"static_intake_only"}
@@ -62,7 +62,7 @@ def dispatch(method,path,data=None):
         if method=="GET" and path=="/v1/core/monitor/report":
             return 200,project_report()
         if path.startswith("/v1/core/research/"):
-            research=Research(os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite"),
+            research=Research(os.environ.get("JARVIS_CORE_DB_PATH",os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite")+".core"),
                               Principal(os.environ["JARVIS_OWNER_ID"],PERMISSIONS))
             if method=="GET" and path=="/v1/core/research/jobs":
                 return 200,{"jobs":[{"id":r[0],"topic":r[1],"source":r[2],
