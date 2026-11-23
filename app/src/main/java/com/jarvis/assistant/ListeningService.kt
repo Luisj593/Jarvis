@@ -44,6 +44,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  }
  private fun listen(){
   if(!running || speaking)return
+  if(sessionActive && System.currentTimeMillis()>=conversationUntil && pendingSpeech.isEmpty())sessionActive=false
   if(!SpeechRecognizer.isRecognitionAvailable(this)){running=false;getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf();return}
   retryPending=false
   recognizer?.destroy()
@@ -150,7 +151,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       thread {
        val reply=try {JarvisOpenAi(this).ask("JARVIS",phrase)}
         catch(e:Exception){"No pude analizar la solicitud en este momento. Comprueba la conexión."}
-       handler.post {if(running){speaking=false;say(reply)}}
+       handler.post {if(running){say(reply)}}
       }
       return
      }
