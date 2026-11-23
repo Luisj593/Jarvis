@@ -83,6 +83,8 @@ class MainActivity : Activity() {
   root.addView(card("Investigar en internet","⌕") {researchOnline()})
   root.addView(card("Investigaciones programadas","◷") {researchSchedule()})
   root.addView(card("Historial de investigaciones","▤") {apiCall("/v1/core/research/history",null,"Historial")})
+  root.addView(card("Catálogo de todos mis proyectos","▦") {apiCall("/v1/core/monitor/catalog",null,"Catálogo GitHub y Railway")})
+  root.addView(card("Monitoreo y errores de proyectos","◈") {apiCall("/v1/core/monitor/report",null,"Informe de observabilidad")})
   root.addView(card("Consultar proyectos en Railway","✦") {apiCall("/v1/core/projects",null,"Proyectos")})
   root.addView(card("Conversar con núcleo Railway","◇") {askCore()})
   root.addView(card("Gestiona tus proyectos","✦") {
