@@ -72,7 +72,7 @@ class MainActivity : Activity() {
   root.addView(card("Enseñar a JARVIS","＋") {teach()})
   root.addView(card("Editar memoria","✎") {editMemory()})
   root.addView(card("Borrar memoria local","×") {clearMemory()})
-  val scroll=ScrollView(this).apply {fillViewport=true;addView(root)}
+  val scroll=ScrollView(this).apply {isFillViewport=true;addView(root)}
   setContentView(scroll)
   if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),12)
