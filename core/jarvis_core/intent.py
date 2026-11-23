@@ -16,6 +16,8 @@ def classify(text: str) -> Intent:
     raw = text.strip()
     clean = normalize(raw)
     for prefix in ("aprende:", "recuerda:", "aprende que ", "recuerda que "):
+        if clean == prefix.strip().rstrip(":") or clean == prefix.strip():
+            return Intent("teach", "")
         if clean.startswith(prefix):
             return Intent("teach", raw[len(prefix):].strip())
     if clean in ("que recuerdas", "que sabes", "muestra memoria"):
