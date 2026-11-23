@@ -54,7 +54,11 @@ def report(fetch=_request):
                 repo=fetch(GITHUB_API+"/repos/"+name,gh)
                 item["status"]="archived" if repo.get("archived") else "accessible"
                 item["open_issues"]=repo.get("open_issues_count")
-                runs=fetch(GITHUB_API+"/repos/"+name+"/actions/runs?per_page=1",gh)
+                try:
+                    runs=fetch(GITHUB_API+"/repos/"+name+"/actions/runs?per_page=1",gh)
+                except urllib.error.HTTPError as exc:
+                    item["error"]="github_actions_http_"+str(exc.code)
+                    runs={}
                 latest=(runs.get("workflow_runs") or [None])[0]
                 if latest:
                     item["last_workflow"]={"name":latest.get("name"),"status":latest.get("status"),
