@@ -21,6 +21,10 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private var conversationUntil=0L
  private var speaking=false
  private var ttsReady=false
+ private val pendingSpeech=StringBuilder()
+ private var flushSpeech:Runnable?=null
+ private var sessionActive=false
+ private val pauseBeforeProcessingMs=4500L
  override fun onBind(intent:Intent?)=null
  override fun onCreate(){ super.onCreate(); tts=TextToSpeech(this,this) }
  override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
@@ -61,11 +65,48 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
    }
    override fun onResults(results:Bundle?){
     errors=0
-    val spoken=results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-    val hasWakeWord=spoken.contains("jarvis",ignoreCase=true)
-    if(hasWakeWord || System.currentTimeMillis()<conversationUntil){
-     conversationUntil=System.currentTimeMillis()+45000L
-     val phrase=(if(hasWakeWord) spoken.substring(spoken.indexOf("jarvis",ignoreCase=true)+6) else spoken).trim().trim(',', ':', ' ', '¿', '?').lowercase(Locale.ROOT)
+    val spoken=results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().trim()
+    val match=Regex("\\bjarvis\\b",RegexOption.IGNORE_CASE).find(spoken)
+    if(match!=null || sessionActive){
+     sessionActive=true
+     conversationUntil=System.currentTimeMillis()+60000L
+     val part=(if(match!=null)spoken.substring(match.range.last+1) else spoken).trim()
+     if(part.isNotBlank()){
+      if(pendingSpeech.isNotEmpty())pendingSpeech.append(' ')
+      pendingSpeech.append(part)
+     }
+     flushSpeech?.let{handler.removeCallbacks(it)}
+     val explicitEnd=Regex("(terminé|he terminado|eso es todo|ejecuta ahora)[.! ]*$",RegexOption.IGNORE_CASE).containsMatchIn(pendingSpeech.toString())
+     if(explicitEnd)finishSpeech() else {
+      val task=Runnable{finishSpeech()}
+      flushSpeech=task
+      handler.postDelayed(task,pauseBeforeProcessingMs)
+      retry(900)
+     }
+    }else retry(1800)
+   }
+   override fun onPartialResults(partialResults:Bundle?){}
+   override fun onEvent(eventType:Int,params:Bundle?){}
+  })
+  try{
+   lastStart=System.currentTimeMillis()
+   recognizer?.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply{
+    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+    putExtra(RecognizerIntent.EXTRA_LANGUAGE,"es-DO")
+    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,false)
+    putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE,packageName)
+   })
+  }catch(e:Exception){errors++;retry(minOf(15000L,2000L*minOf(errors,7)))}
+ }
+ private fun finishSpeech(){
+  flushSpeech?.let{handler.removeCallbacks(it)}
+  flushSpeech=null
+  val phrase=pendingSpeech.toString().trim().lowercase(Locale.ROOT)
+   .replace(Regex("(terminé|he terminado|eso es todo|ejecuta ahora)[.! ]*$"),"").trim()
+  pendingSpeech.setLength(0)
+  if(phrase.isBlank()){retry(1500);return}
+  sessionActive=true
+  conversationUntil=System.currentTimeMillis()+60000L
      val prefs=getSharedPreferences("jarvis_lessons",MODE_PRIVATE)
      val lessons=prefs.getStringSet("lessons",emptySet()).orEmpty()
      val answer=when {
@@ -104,20 +145,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       val result=tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-reply")
       if(result==TextToSpeech.ERROR){speaking=false;retry(600)}
      } else retry(600)
-    } else retry(1800)
-   }
-   override fun onPartialResults(partialResults:Bundle?){}
-   override fun onEvent(eventType:Int,params:Bundle?){}
-  })
-  try{
-   lastStart=System.currentTimeMillis()
-   recognizer?.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply{
-    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-    putExtra(RecognizerIntent.EXTRA_LANGUAGE,"es-DO")
-    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,false)
-    putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE,packageName)
-   })
-  }catch(e:Exception){errors++;retry(minOf(15000L,2000L*minOf(errors,7)))}
+
  }
  private fun retry(delay:Long){
   if(!running || retryPending)return
@@ -126,7 +154,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   val safeDelay=maxOf(delay,1200L-sinceStart)
   handler.postDelayed({retryPending=false;if(running && !speaking)listen()},safeDelay)
  }
- private fun shutdown(){speaking=false;retryPending=false;handler.removeCallbacksAndMessages(null);recognizer?.cancel();recognizer?.destroy();recognizer=null;tts?.stop();tts?.shutdown();tts=null}
+ private fun shutdown(){speaking=false;retryPending=false;sessionActive=false;pendingSpeech.setLength(0);flushSpeech=null;handler.removeCallbacksAndMessages(null);recognizer?.cancel();recognizer?.destroy();recognizer=null;tts?.stop();tts?.shutdown();tts=null}
  override fun onInit(status:Int){
   if(status==TextToSpeech.SUCCESS){
    configureVoice()
