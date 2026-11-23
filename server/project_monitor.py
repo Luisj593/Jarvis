@@ -95,6 +95,33 @@ def report(fetch=_request):
                     "status":"unknown"} for edge in node.get("services",{}).get("edges",[])][:100]
                 item["environments"]=[edge["node"]["name"] for edge in
                     node.get("environments",{}).get("edges",[])][:30]
+                # Consultar despliegues por servicio/entorno sin alterar el proyecto.
+                deployments_query="""query JarvisDeployments($input: DeploymentListInput!) {
+                  deployments(first: 1, input: $input) {
+                    edges { node { id status createdAt } }
+                  }
+                }"""
+                for service in item["services"]:
+                    service["deployments"]=[]
+                    for env in node.get("environments",{}).get("edges",[])[:10]:
+                        env_node=env["node"]
+                        try:
+                            dep=fetch(RAILWAY_API,rw,"POST",{"query":deployments_query,
+                                "variables":{"input":{"projectId":project["id"],
+                                    "serviceId":service["id"],"environmentId":env_node["id"]}}})
+                            if dep.get("errors"):
+                                service["deployments"].append({"environment":env_node["name"],"status":"unknown","error":"deployment_query_unavailable"})
+                                continue
+                            edges=((dep.get("data") or {}).get("deployments") or {}).get("edges") or []
+                            latest=edges[0]["node"] if edges else None
+                            state=latest.get("status","unknown") if latest else "no_deployments"
+                            service["deployments"].append({"environment":env_node["name"],"status":state})
+                            if state in ("FAILED","CRASHED"):
+                                result["alerts"].append({"provider":"railway","project":project["name"],
+                                    "service":service["name"],"environment":env_node["name"],
+                                    "kind":"deployment_failure","severity":"warning","detail":state})
+                        except (urllib.error.HTTPError,urllib.error.URLError,ValueError,KeyError,TypeError,TimeoutError):
+                            service["deployments"].append({"environment":env_node["name"],"status":"unknown","error":"deployment_query_unavailable"})
             except (urllib.error.URLError,ValueError,KeyError,TypeError,TimeoutError):
                 item["error"]="railway_unavailable"
         result["railway"].append(item)
