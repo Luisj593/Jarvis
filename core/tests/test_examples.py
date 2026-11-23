@@ -105,7 +105,8 @@ class ExamplesTests(unittest.TestCase):
 
     def test_sql_injection_treated_as_data(self):
         self.alice.teach("x","'; DROP TABLE intent_examples; --",project="A")
-        self.assertEqual(self.alice.resolve("DROP TABLE intent_examples",project="A").status,"unknown")
+        self.assertEqual(self.alice.resolve("DROP TABLE intent_examples",project="A").status,"matched")
+        self.assertEqual(len(self.alice.examples("x",project="A")),1)
 
 if __name__=="__main__":
     unittest.main()
