@@ -6,6 +6,7 @@ import android.os.*
 import android.content.pm.ServiceInfo
 import android.speech.*
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
 
 class ListeningService: Service(), TextToSpeech.OnInitListener {
@@ -16,6 +17,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private var running=false
  private var errors=0
  private var conversationUntil=0L
+ private var speaking=false
  override fun onBind(intent:Intent?)=null
  override fun onCreate(){ super.onCreate(); tts=TextToSpeech(this,this) }
  override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
@@ -31,7 +33,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   return START_NOT_STICKY
  }
  private fun listen(){
-  if(!running)return
+  if(!running || speaking)return
   if(!SpeechRecognizer.isRecognitionAvailable(this)){running=false;stopSelf();return}
   recognizer?.destroy()
   recognizer=SpeechRecognizer.createSpeechRecognizer(this)
@@ -81,8 +83,12 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
        else "Todavía no conozco cómo responder a eso. Dime aprende que, seguido de tu preferencia o procedimiento."
       }
      }
-     tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-reply")
-     retry(3000)
+     recognizer?.cancel()
+     if(tts!=null){
+      speaking=true
+      val result=tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-reply")
+      if(result==TextToSpeech.ERROR){speaking=false;retry(600)}
+     } else retry(600)
     } else retry(350)
    }
    override fun onPartialResults(partialResults:Bundle?){}
@@ -97,7 +103,16 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   }catch(e:Exception){errors++;if(errors<12)retry(2000) else stopSelf()}
  }
  private fun retry(delay:Long){handler.postDelayed({if(running)listen()},delay)}
- private fun shutdown(){handler.removeCallbacksAndMessages(null);recognizer?.cancel();recognizer?.destroy();recognizer=null;tts?.stop();tts?.shutdown();tts=null}
- override fun onInit(status:Int){if(status==TextToSpeech.SUCCESS)tts?.language=Locale("es","DO")}
+ private fun shutdown(){speaking=false;handler.removeCallbacksAndMessages(null);recognizer?.cancel();recognizer?.destroy();recognizer=null;tts?.stop();tts?.shutdown();tts=null}
+ override fun onInit(status:Int){
+  if(status==TextToSpeech.SUCCESS){
+   tts?.language=Locale("es","DO")
+   tts?.setOnUtteranceProgressListener(object:UtteranceProgressListener(){
+    override fun onStart(utteranceId:String?){}
+    override fun onDone(utteranceId:String?){handler.post {speaking=false;retry(350)}}
+    override fun onError(utteranceId:String?){handler.post {speaking=false;retry(700)}}
+   })
+  }
+ }
  override fun onDestroy(){running=false;shutdown();super.onDestroy()}
 }
