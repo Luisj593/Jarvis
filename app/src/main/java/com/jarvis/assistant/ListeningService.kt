@@ -15,6 +15,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private var tts:TextToSpeech?=null
  private var running=false
  private var errors=0
+ private var conversationUntil=0L
  override fun onBind(intent:Intent?)=null
  override fun onCreate(){ super.onCreate(); tts=TextToSpeech(this,this) }
  override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
@@ -44,25 +45,41 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
    override fun onResults(results:Bundle?){
     errors=0
     val spoken=results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
-    if(spoken.contains("jarvis",ignoreCase=true)){
-     // Prototipo: respuesta local. No se graba ni transmite audio a nuestro servidor.
-     val phrase=spoken.lowercase(Locale.ROOT).substringAfter("jarvis").trim()
+    val hasWakeWord=spoken.contains("jarvis",ignoreCase=true)
+    if(hasWakeWord || System.currentTimeMillis()<conversationUntil){
+     conversationUntil=System.currentTimeMillis()+45000L
+     val phrase=(if(hasWakeWord) spoken.substringAfter("jarvis",spoken,ignoreCase=true) else spoken).trim().trim(',', ':', ' ', '¿', '?').lowercase(Locale.ROOT)
      val prefs=getSharedPreferences("jarvis_lessons",MODE_PRIVATE)
+     val lessons=prefs.getStringSet("lessons",emptySet()).orEmpty()
      val answer=when {
-      phrase.startsWith("recuerda que ") -> {
-       val lesson=spoken.substringAfter("recuerda que ",missingDelimiterValue="").trim()
-       if(lesson.isNotBlank()) {
-        val existing=prefs.getStringSet("lessons",emptySet()).orEmpty().toMutableSet()
-        if(existing.size>=50) "Mi memoria local está llena. Borra las enseñanzas desde la aplicación."
-        else { existing.add(lesson); prefs.edit().putStringSet("lessons",existing).apply(); "He guardado esa enseñanza en este teléfono." }
-       } else "Di Jarvis recuerda que, y lo que deseas enseñarme."
+      phrase.startsWith("recuerda que ") || phrase.startsWith("aprende que ") || phrase.startsWith("aprende:") -> {
+       val lesson=phrase.substringAfter("que ",phrase.substringAfter(":","")).trim()
+       if(lesson.isBlank()) "Dime qué deseas que recuerde."
+       else if(lessons.size>=100) "Mi memoria local llegó al límite de cien enseñanzas."
+       else { val next=lessons.toMutableSet();next.add(lesson);prefs.edit().putStringSet("lessons",next).apply(); "Entendido. Recordaré: "+lesson }
       }
       phrase.contains("qué recuerdas") || phrase.contains("que recuerdas") -> {
-       val lessons=prefs.getStringSet("lessons",emptySet()).orEmpty()
-       if(lessons.isEmpty()) "Todavía no me has enseñado nada."
-       else "Recuerdo: "+lessons.take(3).joinToString(". ")
+       if(lessons.isEmpty()) "Aún no tengo enseñanzas guardadas."
+       else "Recuerdo: "+lessons.sorted().take(5).joinToString(". ")
       }
-      else -> "Te escucho. Puedes decir Jarvis recuerda que, para enseñarme algo."
+      phrase.startsWith("olvida que ") -> {
+       val target=phrase.removePrefix("olvida que ").trim()
+       val matching=lessons.filter { it.lowercase(Locale.ROOT).contains(target) }
+       if(target.isBlank() || matching.isEmpty()) "No encontré esa enseñanza."
+       else {prefs.edit().putStringSet("lessons",lessons.minus(matching.toSet())).apply();"He olvidado "+matching.size+" enseñanza."}
+      }
+      phrase=="terminar conversación" || phrase=="termina la conversación" -> {
+       conversationUntil=0L
+       "Conversación terminada. Di Jarvis para volver a hablar."
+      }
+      phrase=="hola" || phrase=="buenas" -> "Hola. Te escucho, ¿qué necesitas?"
+      phrase.isBlank() -> "Aquí estoy. Puedes continuar hablando."
+      else -> {
+       val tokens=phrase.split(Regex("\\s+")).filter { it.length>3 }.toSet()
+       val match=lessons.map { lesson -> lesson to lesson.lowercase(Locale.ROOT).split(Regex("\\s+")).count { it in tokens } }.maxByOrNull { it.second }
+       if(match!=null && match.second>=2) "Según lo que me enseñaste: "+match.first
+       else "Todavía no conozco cómo responder a eso. Dime aprende que, seguido de tu preferencia o procedimiento."
+      }
      }
      tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-reply")
      retry(3000)
