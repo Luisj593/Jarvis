@@ -275,6 +275,7 @@ class MainActivity : Activity() {
  }
  override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){
   super.onRequestPermissionsResult(requestCode,permissions,grantResults)
+  if(requestCode==11 && grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED)activate()
   if(requestCode==45){
    if(grantResults.isNotEmpty() && grantResults[0]==PackageManager.PERMISSION_GRANTED){
     status.text="Calendario conectado"
@@ -488,10 +489,6 @@ class MainActivity : Activity() {
   }
   startForegroundService(Intent(this,ListeningService::class.java).setAction(ListeningService.START))
   status.text="JARVIS escuchando · Di «Jarvis»"
- }
- override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){
-  super.onRequestPermissionsResult(requestCode,permissions,grantResults)
-  if(requestCode==11 && grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED)activate()
  }
  inner class OrbView:View(this){
   private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
