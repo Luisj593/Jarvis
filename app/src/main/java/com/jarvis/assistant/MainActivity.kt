@@ -10,6 +10,10 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.provider.CalendarContract
+import android.content.ContentValues
+import java.text.SimpleDateFormat
+import java.util.Calendar
 import android.net.Uri
 import android.view.Gravity
 import android.view.View
@@ -91,9 +95,7 @@ class MainActivity : Activity() {
   root.addView(card("Gestiona tus proyectos","✦") {
    showInfo("Proyectos","El núcleo de proyectos está disponible en la API protegida de JARVIS. La sincronización móvil requiere autenticación adicional.")
   })
-  root.addView(card("Organiza tu agenda","▦") {
-   showInfo("Agenda","La integración con el calendario del dispositivo está pendiente. No se ha creado ninguna cita.")
-  })
+  root.addView(card("Organiza tu agenda","▦") {openDeviceCalendar()})
   root.addView(card("Analiza tu información","▥") { showLessons() })
   root.addView(card("Automatiza tareas","⚙") {
    showInfo("Automatizaciones","Las acciones externas todavía no están habilitadas. El núcleo requiere permisos y confirmación.")
@@ -257,6 +259,64 @@ class MainActivity : Activity() {
     }
    }
   }
+ }
+ private fun openDeviceCalendar(){
+  if(checkSelfPermission(Manifest.permission.READ_CALENDAR)!=PackageManager.PERMISSION_GRANTED){
+   requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR),45)
+   showInfo("Permiso de calendario","Concede permiso de lectura y vuelve a abrir la agenda. JARVIS no enviará tus eventos al servidor.")
+   return
+  }
+  val options=arrayOf("Ver próximos eventos","Crear evento en calendario","Abrir calendario del dispositivo")
+  AlertDialog.Builder(this).setTitle("Mi calendario").setItems(options){_,which->
+   when(which){
+    0->showUpcomingEvents()
+    1->createCalendarEvent()
+    else->try {
+     startActivity(Intent(Intent.ACTION_VIEW).setData(CalendarContract.CONTENT_URI.buildUpon().appendPath("time").build()))
+    }catch(e:Exception){showInfo("Calendario","No se encontró una aplicación de calendario compatible.")}
+   }
+  }.setNegativeButton("Cerrar",null).show()
+ }
+ private fun showUpcomingEvents(){
+  if(checkSelfPermission(Manifest.permission.READ_CALENDAR)!=PackageManager.PERMISSION_GRANTED)return
+  try{
+   val now=System.currentTimeMillis()
+   val end=now+30L*24*60*60*1000
+   val uri=CalendarContract.Instances.CONTENT_URI.buildUpon()
+   android.content.ContentUris.appendId(uri,now)
+   android.content.ContentUris.appendId(uri,end)
+   val events=mutableListOf<String>()
+   contentResolver.query(uri.build(),arrayOf(CalendarContract.Instances.TITLE,
+    CalendarContract.Instances.BEGIN,CalendarContract.Instances.EVENT_LOCATION),
+    null,null,CalendarContract.Instances.BEGIN+" ASC")?.use {cursor->
+    val formatter=SimpleDateFormat("dd/MM/yyyy HH:mm",Locale.getDefault())
+    while(cursor.moveToNext() && events.size<30){
+     val name=cursor.getString(0) ?: "Evento sin título"
+     val date=formatter.format(java.util.Date(cursor.getLong(1)))
+     val location=cursor.getString(2).orEmpty()
+     events.add("${events.size+1}- $name\\nFecha: $date"+
+      if(location.isBlank()) "" else "\\nLugar: $location")
+    }
+   }
+   showInfo("Próximos 30 días",if(events.isEmpty())"No se encontraron eventos." else events.joinToString("\\n\\n"))
+  }catch(e:SecurityException){showInfo("Permiso requerido","Activa el permiso de calendario para JARVIS.")}
+   catch(e:Exception){showInfo("Calendario","No fue posible consultar los eventos del dispositivo.")}
+ }
+ private fun createCalendarEvent(){
+  val field=EditText(this).apply{hint="Nombre del evento";setSingleLine(true)}
+  AlertDialog.Builder(this).setTitle("Nuevo evento").setView(field)
+   .setNegativeButton("Cancelar",null).setPositiveButton("Continuar"){_,_->
+    val title=field.text.toString().trim()
+    if(title.isBlank()){showInfo("Evento","Introduce un nombre.");return@setPositiveButton}
+    val start=Calendar.getInstance().apply{add(Calendar.HOUR_OF_DAY,1)}
+    val intent=Intent(Intent.ACTION_INSERT).setData(CalendarContract.Events.CONTENT_URI)
+     .putExtra(CalendarContract.Events.TITLE,title)
+     .putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME,start.timeInMillis)
+     .putExtra(CalendarContract.EXTRA_EVENT_END_TIME,start.timeInMillis+60*60*1000L)
+    try{startActivity(intent)}catch(e:Exception){
+     showInfo("Calendario","No hay una aplicación compatible para crear el evento.")
+    }
+   }.show()
  }
  private fun configureApi(){
   val field=EditText(this).apply {hint="Token JARVIS_API_TOKEN";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD;setSingleLine(true)}
