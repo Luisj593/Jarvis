@@ -82,7 +82,7 @@ class MainActivity : Activity() {
   root.addView(card("Conectar Railway Development","☁") {configureApi()})
   root.addView(card("Investigar en internet","⌕") {researchOnline()})
   root.addView(card("Investigaciones programadas","◷") {researchSchedule()})
-  root.addView(card("Historial de investigaciones","▤") {apiCall("/v1/core/research/history",null,"Historial")}
+  root.addView(card("Historial de investigaciones","▤") {apiCall("/v1/core/research/history",null,"Historial")})
   root.addView(card("Consultar proyectos en Railway","✦") {apiCall("/v1/core/projects",null,"Proyectos")})
   root.addView(card("Conversar con núcleo Railway","◇") {askCore()})
   root.addView(card("Gestiona tus proyectos","✦") {
