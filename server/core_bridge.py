@@ -13,6 +13,7 @@ from jarvis_core.research import Research,ResearchError
 from project_monitor import inventory as project_inventory,report as project_report
 from jarvis_core.implementation import ImplementationEngine,ExecutionConflict
 from jarvis_core.implementation_worker import AnalysisWorker
+from jarvis_core.critical_analysis import assess
 
 PERMISSIONS=frozenset({"memory:read","memory:write","action:execute"})
 
@@ -29,6 +30,10 @@ def dispatch(method,path,data=None):
     projects,responses,actions=_services()
     data=data or {}
     try:
+        if method=="POST" and path=="/v1/core/analysis/critical":
+            if set(data)!={"proposal","evidence","risks","unknowns","requires_production"}:
+                return 400,{"error":"invalid_parameters"}
+            return 200,{"assessment":asdict(assess(**data))}
         if path.startswith("/v1/core/implementation/"):
             engine=ImplementationEngine(os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite"),
                                         Principal(os.environ["JARVIS_OWNER_ID"],PERMISSIONS))
