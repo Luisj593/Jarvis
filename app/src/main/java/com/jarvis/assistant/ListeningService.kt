@@ -18,6 +18,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private var errors=0
  private var conversationUntil=0L
  private var speaking=false
+ private var ttsReady=false
  override fun onBind(intent:Intent?)=null
  override fun onCreate(){ super.onCreate(); tts=TextToSpeech(this,this) }
  override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
@@ -86,7 +87,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       }
      }
      recognizer?.cancel()
-     if(tts!=null){
+     if(ttsReady && tts!=null){
       speaking=true
       val result=tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-reply")
       if(result==TextToSpeech.ERROR){speaking=false;retry(600)}
@@ -108,13 +109,32 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private fun shutdown(){speaking=false;handler.removeCallbacksAndMessages(null);recognizer?.cancel();recognizer?.destroy();recognizer=null;tts?.stop();tts?.shutdown();tts=null}
  override fun onInit(status:Int){
   if(status==TextToSpeech.SUCCESS){
-   tts?.language=Locale("es","DO")
+   configureVoice()
+   ttsReady=true
    tts?.setOnUtteranceProgressListener(object:UtteranceProgressListener(){
     override fun onStart(utteranceId:String?){}
     override fun onDone(utteranceId:String?){handler.post {speaking=false;retry(350)}}
     override fun onError(utteranceId:String?){handler.post {speaking=false;retry(700)}}
    })
   }
+ }
+ private fun configureVoice(){
+  val engine=tts ?: return
+  val british=getSharedPreferences("jarvis_voice",MODE_PRIVATE).getString("profile","british")=="british"
+  val target=if(british) Locale.UK else Locale("es","DO")
+  val available=engine.isLanguageAvailable(target)
+  if(available>=TextToSpeech.LANG_AVAILABLE){
+   engine.language=target
+   val voices=engine.voices.orEmpty()
+   val selected=voices.filter { it.locale.language==target.language && it.locale.country==target.country }
+    .sortedWith(compareBy<android.speech.tts.Voice> {it.isNetworkConnectionRequired}.thenByDescending {it.quality})
+    .firstOrNull()
+   if(selected!=null) engine.voice=selected
+  }else{
+   engine.language=Locale("es","DO")
+  }
+  engine.setSpeechRate(if(british) 0.88f else 0.95f)
+  engine.setPitch(if(british) 0.90f else 1.0f)
  }
  override fun onDestroy(){running=false;shutdown();super.onDestroy()}
 }
