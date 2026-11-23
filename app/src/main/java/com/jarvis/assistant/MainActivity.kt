@@ -266,7 +266,7 @@ class MainActivity : Activity() {
    showInfo("Permiso de calendario","Concede permiso de lectura y vuelve a abrir la agenda. JARVIS no enviará tus eventos al servidor.")
    return
   }
-  val options=arrayOf("Ver próximos eventos","Crear evento en calendario","Abrir calendario del dispositivo")
+  val options=arrayOf("Ver agenda clasificada","Crear evento en calendario","Abrir calendario del dispositivo")
   AlertDialog.Builder(this).setTitle("Mi calendario").setItems(options){_,which->
    when(which){
     0->showUpcomingEvents()
@@ -281,24 +281,48 @@ class MainActivity : Activity() {
   if(checkSelfPermission(Manifest.permission.READ_CALENDAR)!=PackageManager.PERMISSION_GRANTED)return
   try{
    val now=System.currentTimeMillis()
-   val end=now+30L*24*60*60*1000
+   val end=now+90L*24*60*60*1000
    val uri=CalendarContract.Instances.CONTENT_URI.buildUpon()
    android.content.ContentUris.appendId(uri,now)
    android.content.ContentUris.appendId(uri,end)
-   val events=mutableListOf<String>()
-   contentResolver.query(uri.build(),arrayOf(CalendarContract.Instances.TITLE,
-    CalendarContract.Instances.BEGIN,CalendarContract.Instances.EVENT_LOCATION),
-    null,null,CalendarContract.Instances.BEGIN+" ASC")?.use {cursor->
-    val formatter=SimpleDateFormat("dd/MM/yyyy HH:mm",Locale.getDefault())
-    while(cursor.moveToNext() && events.size<30){
-     val name=cursor.getString(0) ?: "Evento sin título"
+   val groups=linkedMapOf(
+    "Próximos cumpleaños" to mutableListOf<String>(),
+    "Tareas pendientes de trabajo" to mutableListOf<String>(),
+    "Reuniones de trabajo" to mutableListOf<String>(),
+    "Compromisos personales" to mutableListOf<String>(),
+    "Otros eventos" to mutableListOf<String>())
+   val formatter=SimpleDateFormat("dd/MM/yyyy HH:mm",Locale.getDefault())
+   contentResolver.query(uri.build(),arrayOf(
+    CalendarContract.Instances.TITLE,CalendarContract.Instances.BEGIN,
+    CalendarContract.Instances.EVENT_LOCATION,CalendarContract.Instances.DESCRIPTION,
+    CalendarContract.Instances.CALENDAR_DISPLAY_NAME),null,null,
+    CalendarContract.Instances.BEGIN+" ASC")?.use {cursor->
+    var count=0
+    while(cursor.moveToNext() && count<200){
+     val title=cursor.getString(0) ?: "Evento sin título"
      val date=formatter.format(java.util.Date(cursor.getLong(1)))
      val location=cursor.getString(2).orEmpty()
-     events.add("${events.size+1}- $name\\nFecha: $date"+
-      if(location.isBlank()) "" else "\\nLugar: $location")
+     val description=cursor.getString(3).orEmpty()
+     val calendarName=cursor.getString(4).orEmpty()
+     val combined=(title+" "+description+" "+calendarName).lowercase(Locale.ROOT)
+     val category=when {
+      listOf("cumpleaños","cumpleanos","birthday","bday","natalicio").any{combined.contains(it)}->"Próximos cumpleaños"
+      listOf("reunión","reunion","meeting","videollamada","entrevista").any{combined.contains(it)}->"Reuniones de trabajo"
+      listOf("tarea","pendiente","entrega","deadline","informe","reporte","trabajo","laboral","proyecto").any{combined.contains(it)}->"Tareas pendientes de trabajo"
+      listOf("personal","familia","médico","medico","cita","vacaciones").any{combined.contains(it)}->"Compromisos personales"
+      else->"Otros eventos"
+     }
+     groups.getValue(category).add(title+" — "+date+
+      if(location.isBlank())"" else " — "+location)
+     count++
     }
    }
-   showInfo("Próximos 30 días",if(events.isEmpty())"No se encontraron eventos." else events.joinToString("\\n\\n"))
+   val sections=groups.map{(category,events)->
+    category+" ("+events.size+")\\n"+
+     if(events.isEmpty())"No hay eventos identificados." else
+      events.mapIndexed{i,event->"${i+1}- $event"}.joinToString("\\n")
+   }
+   showInfo("Agenda clasificada · próximos 90 días",sections.joinToString("\\n\\n"))
   }catch(e:SecurityException){showInfo("Permiso requerido","Activa el permiso de calendario para JARVIS.")}
    catch(e:Exception){showInfo("Calendario","No fue posible consultar los eventos del dispositivo.")}
  }
