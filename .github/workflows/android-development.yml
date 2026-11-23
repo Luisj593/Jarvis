@@ -1,5 +1,6 @@
 name: JARVIS APK desarrollo
 on:
+  workflow_dispatch:
   push:
     branches:
       - feature/jarvis-core-architecture-day02
