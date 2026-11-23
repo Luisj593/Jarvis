@@ -65,6 +65,8 @@ def dispatch(method,path,data=None):
         if path.startswith("/v1/core/knowledge/"):
             knowledge=TechnologyKnowledge(os.environ.get("JARVIS_CORE_DB_PATH",os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite")+".core"),
                 Principal(os.environ["JARVIS_OWNER_ID"],PERMISSIONS))
+            if method=="GET" and path=="/v1/core/knowledge/dgii":
+                return 200,{"topic":"Facturación electrónica RD","notes":knowledge.official_notes()}
             if method=="GET" and path=="/v1/core/knowledge/list":
                 return 200,{"references":knowledge.list()}
             if method=="POST" and path=="/v1/core/knowledge/collect":
