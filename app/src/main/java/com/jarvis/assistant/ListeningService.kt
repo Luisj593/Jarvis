@@ -46,7 +46,25 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
     val spoken=results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
     if(spoken.contains("jarvis",ignoreCase=true)){
      // Prototipo: respuesta local. No se graba ni transmite audio a nuestro servidor.
-     tts?.speak("Te escucho. Mi cerebro todavía no está conectado.",TextToSpeech.QUEUE_FLUSH,null,"jarvis-reply")
+     val phrase=spoken.lowercase(Locale.ROOT).substringAfter("jarvis").trim()
+     val prefs=getSharedPreferences("jarvis_lessons",MODE_PRIVATE)
+     val answer=when {
+      phrase.startsWith("recuerda que ") -> {
+       val lesson=spoken.substringAfter("recuerda que ",missingDelimiterValue="").trim()
+       if(lesson.isNotBlank()) {
+        val existing=prefs.getStringSet("lessons",emptySet()).orEmpty().toMutableSet()
+        if(existing.size>=50) "Mi memoria local está llena. Borra las enseñanzas desde la aplicación."
+        else { existing.add(lesson); prefs.edit().putStringSet("lessons",existing).apply(); "He guardado esa enseñanza en este teléfono." }
+       } else "Di Jarvis recuerda que, y lo que deseas enseñarme."
+      }
+      phrase.contains("qué recuerdas") || phrase.contains("que recuerdas") -> {
+       val lessons=prefs.getStringSet("lessons",emptySet()).orEmpty()
+       if(lessons.isEmpty()) "Todavía no me has enseñado nada."
+       else "Recuerdo: "+lessons.take(3).joinToString(". ")
+      }
+      else -> "Te escucho. Puedes decir Jarvis recuerda que, para enseñarme algo."
+     }
+     tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-reply")
      retry(3000)
     } else retry(350)
    }
