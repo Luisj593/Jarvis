@@ -8,6 +8,7 @@ import android.speech.*
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import java.util.Locale
+import kotlin.concurrent.thread
 
 class ListeningService: Service(), TextToSpeech.OnInitListener {
  companion object { const val START="jarvis.START"; const val STOP="jarvis.STOP"; const val CHANNEL="jarvis_microphone" }
@@ -57,6 +58,9 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
    override fun onEndOfSpeech(){}
    override fun onError(error:Int){
     errors++
+    if(sessionActive && pendingSpeech.isNotEmpty() && flushSpeech!=null){
+     retry(1400);return
+    }
     if(error==SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS){
      running=false;getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf();return
     }
@@ -67,7 +71,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
     errors=0
     val spoken=results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().trim()
     val match=Regex("\\bjarvis\\b",RegexOption.IGNORE_CASE).find(spoken)
-    if(match!=null || sessionActive){
+    if(match!=null || (sessionActive && System.currentTimeMillis()<conversationUntil)){
      sessionActive=true
      conversationUntil=System.currentTimeMillis()+60000L
      val part=(if(match!=null)spoken.substring(match.range.last+1) else spoken).trim()
@@ -83,7 +87,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       handler.postDelayed(task,pauseBeforeProcessingMs)
       retry(900)
      }
-    }else retry(1800)
+    }else {sessionActive=false;retry(1800)}
    }
    override fun onPartialResults(partialResults:Bundle?){}
    override fun onEvent(eventType:Int,params:Bundle?){}
@@ -127,7 +131,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
        else {prefs.edit().putStringSet("lessons",lessons.minus(matching.toSet())).apply();"He olvidado "+matching.size+" enseñanza."}
       }
       phrase=="terminar conversación" || phrase=="termina la conversación" -> {
-       conversationUntil=0L
+       sessionActive=false;conversationUntil=0L
        "Conversación terminada. Di Jarvis para volver a hablar."
       }
       phrase=="hola" || phrase=="buenas" -> "Hola. Te escucho, ¿qué necesitas?"
@@ -136,16 +140,28 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
        val tokens=phrase.split(Regex("\\s+")).filter { it.length>3 }.toSet()
        val match=lessons.map { lesson -> lesson to lesson.lowercase(Locale.ROOT).split(Regex("\\s+")).count { it in tokens } }.maxByOrNull { it.second }
        if(match!=null && match.second>=2) "Según lo que me enseñaste: "+match.first
-       else "Todavía no conozco cómo responder a eso. Dime aprende que, seguido de tu preferencia o procedimiento."
+       else if(JarvisOpenAi(this).configured()) null
+       else "Todavía no tengo la conexión OpenAI configurada. Configúrala en la aplicación para analizar solicitudes abiertas."
       }
      }
      recognizer?.cancel()
+     if(answer==null){
+      speaking=true
+      thread {
+       val reply=try {JarvisOpenAi(this).ask("JARVIS",phrase)}
+        catch(e:Exception){"No pude analizar la solicitud en este momento. Comprueba la conexión."}
+       handler.post {if(running){speaking=false;say(reply)}}
+      }
+      return
+     }
+     say(answer)
+ }
+ private fun say(answer:String){
      if(ttsReady && tts!=null){
       speaking=true
       val result=tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-reply")
       if(result==TextToSpeech.ERROR){speaking=false;retry(600)}
      } else retry(600)
-
  }
  private fun retry(delay:Long){
   if(!running || retryPending)return
