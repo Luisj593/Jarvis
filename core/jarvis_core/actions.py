@@ -34,7 +34,8 @@ class ActionResult:
 
 class ControlledActions:
     """No admite plugins, comandos arbitrarios, shell, red ni acciones externas."""
-    def __init__(self, path, principal: Principal):
+    def __init__(self, path, principal: Principal, *, strict_policies=False):
+        self.strict_policies=bool(strict_policies)
         self.principal=principal
         self.projects=ProjectRegistry(path,principal)
         self.store=self.projects.store
@@ -81,7 +82,7 @@ class ControlledActions:
         row=db.execute("SELECT allowed,version FROM project_action_policies WHERE owner_id=? AND project_id=?",
                        (self.principal.owner_id,project_id)).fetchone()
         # Compatibilidad con proyectos anteriores a la actividad 14.
-        if row is None: return (1,0)
+        if row is None: return (0 if self.strict_policies else 1,0)
         return row
 
     def catalog(self):
@@ -117,7 +118,7 @@ class ControlledActions:
                  sha256(token.encode()).hexdigest(),expires,policy_version,risk))
         return ActionPreview(ticket_id+"."+token,action,project_id,row[4],status,row[5],expires,False,risk)
 
-    def confirm(self, ticket, confirmation):
+    def confirm(self, ticket, confirmation, *, audit_callback=None):
         require_permission(self.principal,"action:execute")
         require_permission(self.principal,"memory:write")
         if confirmation not in ("CONFIRMAR ACCIÓN","CONFIRMAR ACCIÓN DE ALTO RIESGO"):
@@ -150,4 +151,7 @@ class ControlledActions:
             if updated.rowcount!=1: raise ProjectConflict("cambio concurrente")
             db.execute("UPDATE action_tickets SET consumed=1 WHERE id=? AND owner_id=?",
                        (ticket_id,self.principal.owner_id))
-            return ActionResult(action,project_id,before,after,version+1)
+            result=ActionResult(action,project_id,before,after,version+1)
+            if audit_callback is not None:
+                audit_callback(db,result)
+            return result
