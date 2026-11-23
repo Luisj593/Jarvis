@@ -112,8 +112,7 @@ class ControlledActions:
             if not allowed: raise PermissionError("acción prohibida para este proyecto")
             risk="high" if status in ("archived","completed") else "low"
             db.execute("""INSERT INTO action_tickets
-                (id,owner_id,project_id,action,before_status,after_status,project_version,secret_hash,expires_at)
-                ,policy_version,risk) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (id,owner_id,project_id,action,before_status,after_status,project_version,secret_hash,expires_at,policy_version,risk) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (ticket_id,self.principal.owner_id,project_id,action,row[4],status,row[5],
                  sha256(token.encode()).hexdigest(),expires,policy_version,risk))
         return ActionPreview(ticket_id+"."+token,action,project_id,row[4],status,row[5],expires,False,risk)
