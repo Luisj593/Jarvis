@@ -2,7 +2,7 @@ name: Compilar APK JARVIS
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feature/jarvis-core-architecture-day02]
     paths:
       - '.github/workflows/android-apk.yml'
       - 'app/**'

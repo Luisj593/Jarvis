@@ -1,3 +1,4 @@
+from core_bridge import dispatch as core_dispatch
 import json, os, hmac, sqlite3, threading, urllib.request, urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
@@ -25,6 +26,12 @@ class Handler(BaseHTTPRequestHandler):
         if path=="/health":
             return self.send(200,{"status":"ok","service":"jarvis-brain","version":"0.1","ready":bool(TOKEN)})
         if not self.authorized(): return self.send(401,{"error":"unauthorized"})
+        if path.startswith("/v1/core/"):
+            try:
+                status,payload=core_dispatch("GET",path)
+                return self.send(status,payload)
+            except RuntimeError:
+                return self.send(503,{"error":"core_not_configured"})
         if path=="/projects":
             return self.send(200,{"projects":[{"name":name,"access":"catalog-only"} for name in ["Plazado","NightGest-ERP","NightGest-ERP-Testing","SV-Personalizado","ServicioPro","Plazado - Pruebas"]]})
         if path=="/lessons":
@@ -35,11 +42,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self.authorized(): return self.send(401,{"error":"unauthorized"})
         path=urlparse(self.path).path
-        if path not in ("/lessons","/chat"): return self.send(404,{"error":"not_found"})
+        if path not in ("/lessons","/chat") and not path.startswith("/v1/core/"): return self.send(404,{"error":"not_found"})
         try:
             length=int(self.headers.get("Content-Length","0"))
             if length<=0 or length>8192:return self.send(413,{"error":"invalid_size"})
             obj=json.loads(self.rfile.read(length))
+            if path.startswith("/v1/core/"):
+                if not isinstance(obj,dict): return self.send(400,{"error":"invalid_json"})
+                try:
+                    status,payload=core_dispatch("POST",path,obj)
+                    return self.send(status,payload)
+                except RuntimeError:
+                    return self.send(503,{"error":"core_not_configured"})
             if path=="/chat":
                 message=obj.get("message","")
                 project=obj.get("project","general")
@@ -70,4 +84,5 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(400,{"error":"invalid_json"})
     def log_message(self,format,*args): pass
 
-ThreadingHTTPServer(("0.0.0.0",int(os.environ.get("PORT","8080"))),Handler).serve_forever()
+if __name__=="__main__":
+    ThreadingHTTPServer(("0.0.0.0",int(os.environ.get("PORT","8080"))),Handler).serve_forever()

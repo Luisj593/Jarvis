@@ -18,11 +18,14 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private var errors=0
  private var conversationUntil=0L
  private var speaking=false
+ private var ttsReady=false
  override fun onBind(intent:Intent?)=null
  override fun onCreate(){ super.onCreate(); tts=TextToSpeech(this,this) }
  override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
-  if(intent?.action==STOP){running=false;shutdown();stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();return START_NOT_STICKY}
-  if(running)return START_NOT_STICKY
+  if(intent?.action==STOP){getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();running=false;shutdown();stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();return START_NOT_STICKY}
+  if(intent?.action!=START && !getSharedPreferences("jarvis_service",MODE_PRIVATE).getBoolean("enabled",false)) {stopSelf();return START_NOT_STICKY}
+  if(running)return START_STICKY
+  getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",true).apply()
   running=true
   val mgr=getSystemService(NotificationManager::class.java)
   mgr.createNotificationChannel(NotificationChannel(CHANNEL,"Micrófono de JARVIS",NotificationManager.IMPORTANCE_LOW))
@@ -30,11 +33,11 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   val notification=Notification.Builder(this,CHANNEL).setContentTitle("JARVIS escuchando").setContentText("Micrófono activo. Di Jarvis para hablar.").setSmallIcon(android.R.drawable.ic_btn_speak_now).setOngoing(true).addAction(Notification.Action.Builder(null,"Detener",stopIntent).build()).build()
   if(Build.VERSION.SDK_INT>=29) startForeground(1,notification,ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) else startForeground(1,notification)
   handler.post { listen() }
-  return START_NOT_STICKY
+  return START_STICKY
  }
  private fun listen(){
   if(!running || speaking)return
-  if(!SpeechRecognizer.isRecognitionAvailable(this)){running=false;stopSelf();return}
+  if(!SpeechRecognizer.isRecognitionAvailable(this)){running=false;getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf();return}
   recognizer?.destroy()
   recognizer=SpeechRecognizer.createSpeechRecognizer(this)
   recognizer?.setRecognitionListener(object:RecognitionListener{
@@ -43,7 +46,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
    override fun onRmsChanged(rmsdB:Float){}
    override fun onBufferReceived(buffer:ByteArray?){}
    override fun onEndOfSpeech(){}
-   override fun onError(error:Int){errors++; if(error==SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS || errors>=12){running=false;stopSelf();return};retry(if(error==SpeechRecognizer.ERROR_RECOGNIZER_BUSY)1500 else 700)}
+   override fun onError(error:Int){errors++; if(error==SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS || errors>=12){running=false;getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf();return};retry(if(error==SpeechRecognizer.ERROR_RECOGNIZER_BUSY)1500 else 700)}
    override fun onResults(results:Bundle?){
     errors=0
     val spoken=results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
@@ -84,7 +87,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       }
      }
      recognizer?.cancel()
-     if(tts!=null){
+     if(ttsReady && tts!=null){
       speaking=true
       val result=tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-reply")
       if(result==TextToSpeech.ERROR){speaking=false;retry(600)}
@@ -100,19 +103,38 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
     putExtra(RecognizerIntent.EXTRA_LANGUAGE,"es-DO")
     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,false)
    })
-  }catch(e:Exception){errors++;if(errors<12)retry(2000) else stopSelf()}
+  }catch(e:Exception){errors++;if(errors<12)retry(2000) else {getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf()}}
  }
  private fun retry(delay:Long){handler.postDelayed({if(running)listen()},delay)}
  private fun shutdown(){speaking=false;handler.removeCallbacksAndMessages(null);recognizer?.cancel();recognizer?.destroy();recognizer=null;tts?.stop();tts?.shutdown();tts=null}
  override fun onInit(status:Int){
   if(status==TextToSpeech.SUCCESS){
-   tts?.language=Locale("es","DO")
+   configureVoice()
+   ttsReady=true
    tts?.setOnUtteranceProgressListener(object:UtteranceProgressListener(){
     override fun onStart(utteranceId:String?){}
     override fun onDone(utteranceId:String?){handler.post {speaking=false;retry(350)}}
     override fun onError(utteranceId:String?){handler.post {speaking=false;retry(700)}}
    })
   }
+ }
+ private fun configureVoice(){
+  val engine=tts ?: return
+  val british=getSharedPreferences("jarvis_voice",MODE_PRIVATE).getString("profile","british")=="british"
+  val target=if(british) Locale.UK else Locale("es","DO")
+  val available=engine.isLanguageAvailable(target)
+  if(available>=TextToSpeech.LANG_AVAILABLE){
+   engine.language=target
+   val voices=engine.voices.orEmpty()
+   val selected=voices.filter { it.locale.language==target.language && it.locale.country==target.country }
+    .sortedWith(compareBy<android.speech.tts.Voice> {it.isNetworkConnectionRequired}.thenByDescending {it.quality})
+    .firstOrNull()
+   if(selected!=null) engine.voice=selected
+  }else{
+   engine.language=Locale("es","DO")
+  }
+  engine.setSpeechRate(if(british) 0.88f else 0.95f)
+  engine.setPitch(if(british) 0.90f else 1.0f)
  }
  override fun onDestroy(){running=false;shutdown();super.onDestroy()}
 }
