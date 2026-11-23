@@ -80,6 +80,8 @@ class MainActivity : Activity() {
     }.show()
   })
   root.addView(card("Conectar Railway Development","☁") {configureApi()})
+  root.addView(card("Configurar conexión OpenAI (pruebas)","⚡") {configureOpenAi()})
+  root.addView(card("Conversar con OpenAI (pruebas)","✧") {askOpenAi()})
   root.addView(card("Investigar en internet","⌕") {researchOnline()})
   root.addView(card("Investigaciones programadas","◷") {researchSchedule()})
   root.addView(card("Historial de investigaciones","▤") {apiCall("/v1/core/research/history",null,"Historial")})
@@ -105,6 +107,43 @@ class MainActivity : Activity() {
   setContentView(scroll)
   if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),12)
+ }
+ private fun configureOpenAi(){
+  val field=EditText(this).apply {
+   hint="Token JARVIS_BRIDGE_TOKEN del servicio de pruebas"
+   inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+  }
+  AlertDialog.Builder(this).setTitle("Conexión OpenAI · pruebas")
+   .setMessage("Introduce el token de acceso del puente JARVIS (no la clave de OpenAI). Se almacena cifrado en Android. Esta integración es experimental y no autoriza cambios de producción.")
+   .setView(field).setNegativeButton("Cancelar",null)
+   .setNeutralButton("Eliminar"){_,_->JarvisOpenAi(this).clear();status.text="Token de pruebas eliminado"}
+   .setPositiveButton("Guardar"){_,_->
+    try {JarvisOpenAi(this).saveToken(field.text.toString().trim());status.text="Conexión de pruebas configurada"}
+    catch(e:Exception){status.text="No se pudo guardar el token de pruebas"}
+   }.show()
+ }
+ private fun askOpenAi(){
+  if(!JarvisOpenAi(this).configured()){
+   showInfo("Falta autenticación","Configura primero el token del puente OpenAI de pruebas.");return
+  }
+  val field=EditText(this).apply {hint="Describe qué necesitas";minLines=3}
+  AlertDialog.Builder(this).setTitle("Consultar OpenAI · pruebas").setView(field)
+   .setNegativeButton("Cancelar",null).setPositiveButton("Enviar"){_,_->
+    val message=field.text.toString().trim()
+    if(message.isBlank() || message.length>8000){
+     showInfo("Solicitud inválida","Escribe una solicitud de hasta 8000 caracteres.")
+    } else {
+     status.text="Consultando OpenAI…"
+     thread {
+      try {
+       val answer=JarvisOpenAi(this).ask("JARVIS",message)
+       runOnUiThread {status.text="Respuesta recibida";showInfo("OpenAI · JARVIS",answer.take(3500))}
+      } catch(e:Exception){
+       runOnUiThread {status.text="Error de conexión";showInfo("OpenAI no disponible",e.message?.take(200) ?: "Error desconocido")}
+      }
+     }
+    }
+   }.show()
  }
  private fun configureApi(){
   val field=EditText(this).apply {hint="Token de acceso a Railway Development";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD}
