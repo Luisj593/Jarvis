@@ -48,7 +48,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
     val hasWakeWord=spoken.contains("jarvis",ignoreCase=true)
     if(hasWakeWord || System.currentTimeMillis()<conversationUntil){
      conversationUntil=System.currentTimeMillis()+45000L
-     val phrase=(if(hasWakeWord) spoken.substringAfter("jarvis",spoken,ignoreCase=true) else spoken).trim().trim(',', ':', ' ', '¿', '?').lowercase(Locale.ROOT)
+     val phrase=(if(hasWakeWord) spoken.substring(spoken.indexOf("jarvis",ignoreCase=true)+6) else spoken).trim().trim(',', ':', ' ', '¿', '?').lowercase(Locale.ROOT)
      val prefs=getSharedPreferences("jarvis_lessons",MODE_PRIVATE)
      val lessons=prefs.getStringSet("lessons",emptySet()).orEmpty()
      val answer=when {
