@@ -63,7 +63,9 @@ def report(fetch=_request):
                         result["alerts"].append({"provider":"github","project":name,
                             "kind":"workflow_problem","severity":"warning",
                             "detail":latest.get("conclusion"),"url":latest.get("html_url")})
-            except (urllib.error.URLError,ValueError,KeyError,TimeoutError) as exc:
+            except urllib.error.HTTPError as exc:
+                item["error"]="github_http_"+str(exc.code)
+            except (urllib.error.URLError,ValueError,KeyError,TimeoutError):
                 item["error"]="github_unavailable"
         result["github"].append(item)
     for project in inv["railway"]:
