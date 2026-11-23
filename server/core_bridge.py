@@ -22,7 +22,7 @@ def _services():
     owner=os.environ.get("JARVIS_OWNER_ID","").strip()
     if not owner:
         raise RuntimeError("JARVIS_OWNER_ID no configurado")
-    path=os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite")
+    path=os.environ.get("JARVIS_CORE_DB_PATH",os.environ.get("JARVIS_CORE_DB_PATH",os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite")+".core")+".core")
     principal=Principal(owner,PERMISSIONS)
     return ProjectRegistry(path,principal),ResponseComposer(path,principal),AuditedActions(path,principal,strict_policies=True)
 
