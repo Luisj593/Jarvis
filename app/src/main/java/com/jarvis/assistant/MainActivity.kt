@@ -83,7 +83,7 @@ class MainActivity : Activity() {
   root.addView(card("Investigar en internet","⌕") {researchOnline()})
   root.addView(card("Investigaciones programadas","◷") {researchSchedule()})
   root.addView(card("Historial de investigaciones","▤") {apiCall("/v1/core/research/history",null,"Historial")})
-  root.addView(card("Catálogo de todos mis proyectos","▦") {apiCall("/v1/core/monitor/catalog",null,"Catálogo GitHub y Railway")})
+  root.addView(card("Catálogo de todos mis proyectos","▦") {showProjectCatalog()})
   root.addView(card("Informes de evaluaciones de JARVIS","▤") {showEvaluationReports()})
   root.addView(card("Monitoreo y errores de proyectos","◈") {apiCall("/v1/core/monitor/report",null,"Informe de observabilidad")})
   root.addView(card("Consultar proyectos en Railway","✦") {apiCall("/v1/core/projects",null,"Proyectos")})
@@ -168,6 +168,40 @@ class MainActivity : Activity() {
   dialog.setOnShowListener {dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {refresh()}}
   dialog.show()
   refresh()
+ }
+ private fun showProjectCatalog(){
+  if(!JarvisApi(this).configured()){
+   showInfo("Conexión requerida","Configura primero el token de Railway Development.")
+   return
+  }
+  status.text="Cargando proyectos…"
+  thread {
+   try {
+    val result=JarvisApi(this).request("/v1/core/monitor/catalog")
+    val names=mutableListOf<String>()
+    val github=result.optJSONArray("github")
+    if(github!=null) for(i in 0 until github.length()){
+     val full=github.optString(i).trim()
+     if(full.isNotEmpty()) names.add(full.substringAfterLast('/'))
+    }
+    val railway=result.optJSONArray("railway")
+    if(railway!=null) for(i in 0 until railway.length()){
+     val name=railway.optJSONObject(i)?.optString("name")?.trim().orEmpty()
+     if(name.isNotEmpty()) names.add(name)
+    }
+    runOnUiThread {
+     status.text="Catálogo actualizado"
+     val unique=names.distinct()
+     showInfo("Mis proyectos",if(unique.isEmpty()) "No hay proyectos registrados."
+      else unique.mapIndexed {index,name->"${index+1}. $name"}.joinToString("\\n"))
+    }
+   }catch(e:Exception){
+    runOnUiThread {
+     status.text="No se pudo cargar el catálogo"
+     showInfo("Error de conexión",e.message?.take(180) ?: "Error desconocido")
+    }
+   }
+  }
  }
  private fun configureApi(){
   val field=EditText(this).apply {hint="Token JARVIS_API_TOKEN";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD;setSingleLine(true)}
