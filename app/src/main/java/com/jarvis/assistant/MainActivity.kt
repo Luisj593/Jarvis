@@ -84,6 +84,7 @@ class MainActivity : Activity() {
   root.addView(card("Investigaciones programadas","◷") {researchSchedule()})
   root.addView(card("Historial de investigaciones","▤") {apiCall("/v1/core/research/history",null,"Historial")})
   root.addView(card("Catálogo de todos mis proyectos","▦") {apiCall("/v1/core/monitor/catalog",null,"Catálogo GitHub y Railway")})
+  root.addView(card("Informes de evaluaciones de JARVIS","▤") {showEvaluationReports()})
   root.addView(card("Monitoreo y errores de proyectos","◈") {apiCall("/v1/core/monitor/report",null,"Informe de observabilidad")})
   root.addView(card("Consultar proyectos en Railway","✦") {apiCall("/v1/core/projects",null,"Proyectos")})
   root.addView(card("Conversar con núcleo Railway","◇") {askCore()})
@@ -107,6 +108,66 @@ class MainActivity : Activity() {
   setContentView(scroll)
   if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),12)
+ }
+ private fun showEvaluationReports(){
+  if(!JarvisApi(this).configured()){
+   showInfo("Conexión requerida","Configura primero el token de Railway Development.")
+   return
+  }
+  val page=LinearLayout(this).apply {
+   orientation=LinearLayout.VERTICAL
+   setBackgroundColor(navy)
+   setPadding(dp(18),dp(20),dp(18),dp(18))
+  }
+  val heading=text("INFORMES DE JARVIS",24f,cyan)
+  page.addView(heading)
+  val summary=text("Consultando evaluaciones…",14f)
+  summary.setPadding(dp(8),dp(16),dp(8),dp(16))
+  page.addView(summary)
+  val reports=LinearLayout(this).apply {orientation=LinearLayout.VERTICAL}
+  page.addView(reports)
+  val scroll=ScrollView(this).apply {addView(page)}
+  val dialog=AlertDialog.Builder(this).setView(scroll)
+   .setNegativeButton("Cerrar",null)
+   .setPositiveButton("Actualizar",null).create()
+  fun refresh(){
+   summary.text="Consultando informes de GitHub y Railway…"
+   reports.removeAllViews()
+   thread {
+    try {
+     val result=JarvisApi(this).request("/v1/core/monitor/report",null)
+     val github=result.optJSONArray("github")
+     val railway=result.optJSONArray("railway")
+     val stats=result.optJSONObject("summary")
+     runOnUiThread {
+      summary.text="Evaluación: ${result.optString("checked_at","Sin fecha")}\\n" +
+       "Alertas: ${stats?.optInt("alerts",0) ?: 0}  ·  Errores GitHub: ${stats?.optInt("github_errors",0) ?: 0}  ·  Errores Railway: ${stats?.optInt("railway_errors",0) ?: 0}"
+      fun addReport(title:String,detail:String){
+       reports.addView(card(title,"◈") {showInfo(title,detail)})
+      }
+      if(github!=null) for(i in 0 until github.length()){
+       val item=github.optJSONObject(i) ?: continue
+       addReport("GitHub · ${item.optString("repository")}",
+        "Estado: ${item.optString("status")}\\nError: ${item.optString("error","Ninguno")}\\n" +
+        "Último flujo: ${item.optJSONObject("last_workflow")?.toString(2) ?: "Sin datos"}")
+      }
+      if(railway!=null) for(i in 0 until railway.length()){
+       val item=railway.optJSONObject(i) ?: continue
+       addReport("Railway · ${item.optString("project")}",
+        "Estado: ${item.optString("status")}\\nError: ${item.optString("error","Ninguno")}\\n" +
+        "Servicios y despliegues: ${item.optJSONArray("services")?.toString(2) ?: "Sin datos"}")
+      }
+      if((github?.length() ?: 0)+(railway?.length() ?: 0)==0)
+       summary.text="No se recibieron informes de evaluación."
+     }
+    } catch(e:Exception){
+     runOnUiThread {summary.text="No se pudieron cargar los informes: ${e.message?.take(150) ?: "Error desconocido"}"}
+    }
+   }
+  }
+  dialog.setOnShowListener {dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {refresh()}}
+  dialog.show()
+  refresh()
  }
  private fun configureApi(){
   val field=EditText(this).apply {hint="Token de acceso a Railway Development";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD}
