@@ -15,6 +15,8 @@ import android.view.Gravity
 import android.view.View
 import android.widget.*
 import java.util.Locale
+import org.json.JSONObject
+import kotlin.concurrent.thread
 
 /** Interfaz futurista nativa; no necesita conexión ni assets externos. */
 class MainActivity : Activity() {
@@ -77,6 +79,12 @@ class MainActivity : Activity() {
      startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:$packageName")))
     }.show()
   })
+  root.addView(card("Conectar Railway Development","☁") {configureApi()})
+  root.addView(card("Investigar en internet","⌕") {researchOnline()})
+  root.addView(card("Investigaciones programadas","◷") {researchSchedule()})
+  root.addView(card("Historial de investigaciones","▤") {apiCall("/v1/core/research/history",null,"Historial")}
+  root.addView(card("Consultar proyectos en Railway","✦") {apiCall("/v1/core/projects",null,"Proyectos")})
+  root.addView(card("Conversar con núcleo Railway","◇") {askCore()})
   root.addView(card("Gestiona tus proyectos","✦") {
    showInfo("Proyectos","El núcleo de proyectos está disponible en la API protegida de JARVIS. La sincronización móvil requiere autenticación adicional.")
   })
@@ -97,6 +105,65 @@ class MainActivity : Activity() {
   setContentView(scroll)
   if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),12)
+ }
+ private fun configureApi(){
+  val field=EditText(this).apply {hint="Token de acceso a Railway Development";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD}
+  AlertDialog.Builder(this).setTitle("Conexión segura a Railway")
+   .setMessage("Introduce el token JARVIS_API_TOKEN configurado en Railway Development. Se cifrará en el almacén seguro de Android. No lo compartas ni lo incluyas en capturas.")
+   .setView(field).setNegativeButton("Cancelar",null)
+   .setNeutralButton("Eliminar token"){_,_->JarvisApi(this).clearToken();status.text="Credencial eliminada"}
+   .setPositiveButton("Guardar"){_,_->
+    try {JarvisApi(this).saveToken(field.text.toString().trim());status.text="Token guardado de forma cifrada"}
+    catch(e:Exception){status.text="No se pudo guardar el token"}
+   }.show()
+ }
+ private fun apiCall(path:String,payload:JSONObject?,title:String){
+  if(!JarvisApi(this).configured()){showInfo("Conexión requerida","Configura primero el token de Railway Development.");return}
+  status.text="Consultando Railway Development…"
+  thread {
+   try{
+    val response=JarvisApi(this).request(path,payload)
+    val output=response.toString(2).take(3500)
+    runOnUiThread {status.text="Consulta finalizada";showInfo(title,output)}
+   }catch(e:Exception){
+    runOnUiThread {status.text="No se completó la consulta";showInfo("Error de conexión",e.message?.take(180) ?: "Error desconocido")}
+   }
+  }
+ }
+ private fun prompt(title:String,hint:String,action:(String)->Unit){
+  val field=EditText(this).apply {this.hint=hint;setSingleLine(false);minLines=2}
+  AlertDialog.Builder(this).setTitle(title).setView(field)
+   .setNegativeButton("Cancelar",null).setPositiveButton("Continuar"){_,_->
+    val value=field.text.toString().trim()
+    if(value.isNotEmpty() && value.length<=120)action(value)
+    else showInfo("Dato inválido","Introduce entre 1 y 120 caracteres.")
+   }.show()
+ }
+ private fun researchOnline(){
+  prompt("Investigar en internet","Ejemplo: Android"){topic->
+   apiCall("/v1/core/research/query",JSONObject().put("topic",topic).put("source","tecnologia"),"Investigación y fuentes")
+  }
+ }
+ private fun researchSchedule(){
+  val options=arrayOf("Programar investigación diaria","Ver investigaciones","Cancelar investigación")
+  AlertDialog.Builder(this).setTitle("Investigaciones autónomas")
+   .setItems(options){_,which->
+    when(which){
+     0->prompt("Programar tema","Ejemplo: Android"){topic->
+      apiCall("/v1/core/research/schedule",JSONObject().put("topic",topic).put("source","tecnologia").put("interval_minutes",1440),"Investigación registrada")
+     }
+     1->apiCall("/v1/core/research/jobs",null,"Investigaciones")
+     else->prompt("Cancelar investigación","Introduce el ID de la investigación"){id->
+      apiCall("/v1/core/research/cancel",JSONObject().put("job_id",id),"Cancelación")
+     }
+    }
+   }.show()
+ }
+ private fun askCore(){
+  prompt("Conversar con JARVIS","Escribe una pregunta"){message->
+   val session=getSharedPreferences("jarvis_api",MODE_PRIVATE).getString("session","android-session") ?: "android-session"
+   apiCall("/v1/core/conversation/respond",JSONObject().put("session_id",session).put("message",message),"Respuesta de JARVIS")
+  }
  }
  private fun showInfo(title:String,message:String){
   AlertDialog.Builder(this).setTitle(title).setMessage(message).setPositiveButton("Entendido",null).show()
