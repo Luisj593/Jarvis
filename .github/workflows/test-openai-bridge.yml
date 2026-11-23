@@ -1,0 +1,21 @@
+name: Test OpenAI Bridge
+on:
+  push:
+    branches:
+      - feature/openai-bridge-20261123
+    paths:
+      - 'bridge/**'
+      - '.github/workflows/test-openai-bridge.yml'
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bridge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm test
