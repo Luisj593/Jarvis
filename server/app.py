@@ -1,5 +1,5 @@
 from core_bridge import dispatch as core_dispatch
-import json, os, hmac, sqlite3, threading, urllib.request, urllib.error
+import json, os, hmac, sqlite3, threading, urllib.request, urllib.error, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
@@ -84,7 +84,26 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(400,{"error":"invalid_json"})
     def log_message(self,format,*args): pass
 
+def monitor_loop():
+    from project_monitor import report as monitor_report
+    interval=max(300,min(86400,int(os.environ.get("JARVIS_MONITOR_INTERVAL_SECONDS","900"))))
+    previous=None
+    while True:
+        try:
+            data=monitor_report()
+            errors=[{"name":x.get("repository",x.get("project")),"error":x["error"]} for x in data["github"]+data["railway"] if x.get("error")]
+            signature=json.dumps({"alerts":data["alerts"],"errors":errors},sort_keys=True)
+            if signature!=previous:
+                print("JARVIS_MONITOR_CHANGE "+json.dumps({"checked_at":data["checked_at"],"summary":data["summary"],"alerts":data["alerts"],"errors":errors},ensure_ascii=False),flush=True)
+                previous=signature
+        except Exception as exc:
+            print("JARVIS_MONITOR_LOOP_ERROR "+type(exc).__name__,flush=True)
+        time.sleep(interval)
+
 if __name__=="__main__":
+    if os.environ.get("JARVIS_MONITOR_PERIODIC_ENABLED")=="1":
+        threading.Thread(target=monitor_loop,name="jarvis-monitor",daemon=True).start()
+
     if os.environ.get("JARVIS_MONITOR_STARTUP_PROBE")=="1":
         try:
             from project_monitor import report as monitor_report
