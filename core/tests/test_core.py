@@ -11,8 +11,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(saved.intent, "teach")
         self.assertEqual(len(saved.memory_ids), 1)
         result = self.engine.respond(Request("¿Qué recuerdas?", "A"))
-        # La puntuación se maneja en una etapa posterior; forma sin signos garantizada.
-        self.assertEqual(result.intent, "query")
+        self.assertEqual(result.intent, "recall")
         self.assertEqual(self.engine.respond(Request("qué recuerdas", "A")).intent, "recall")
 
     def test_isolation(self):
