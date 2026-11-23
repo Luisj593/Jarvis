@@ -24,9 +24,9 @@ class AuditIntegrityError(Exception):
 
 class AuditedActions:
     """Fachada explícita: operaciones deben pasar por esta API para ser auditadas."""
-    def __init__(self,path: str | Path,principal: Principal):
+    def __init__(self,path: str | Path,principal: Principal, *, strict_policies=False):
         self.principal=principal
-        self.actions=ControlledActions(path,principal)
+        self.actions=ControlledActions(path,principal,strict_policies=strict_policies)
         self.store=self.actions.store
         with self.store._connect() as db:
             db.execute("""CREATE TABLE IF NOT EXISTS jarvis_audit(
@@ -40,17 +40,20 @@ class AuditedActions:
         body=json.dumps([owner,project,kind,outcome,details,previous],ensure_ascii=False,separators=(",",":"))
         return sha256(body.encode("utf-8")).hexdigest()
 
-    def _record(self,project_id,kind,outcome,details):
+    def _record_in_transaction(self,db,project_id,kind,outcome,details):
         # Datos de auditoría no incluyen secretos ni tickets.
         details=json.dumps(details,sort_keys=True,ensure_ascii=False,separators=(",",":"))
+        row=db.execute("SELECT event_hash FROM jarvis_audit WHERE owner_id=? ORDER BY seq DESC LIMIT 1",
+                       (self.principal.owner_id,)).fetchone()
+        previous=row[0] if row else "GENESIS"
+        digest=self._digest(self.principal.owner_id,project_id,kind,outcome,details,previous)
+        db.execute("""INSERT INTO jarvis_audit(owner_id,project_id,kind,outcome,details,previous_hash,event_hash)
+            VALUES(?,?,?,?,?,?,?)""",(self.principal.owner_id,project_id,kind,outcome,details,previous,digest))
+
+    def _record(self,project_id,kind,outcome,details):
         with self.store._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            row=db.execute("SELECT event_hash FROM jarvis_audit WHERE owner_id=? ORDER BY seq DESC LIMIT 1",
-                           (self.principal.owner_id,)).fetchone()
-            previous=row[0] if row else "GENESIS"
-            digest=self._digest(self.principal.owner_id,project_id,kind,outcome,details,previous)
-            db.execute("""INSERT INTO jarvis_audit(owner_id,project_id,kind,outcome,details,previous_hash,event_hash)
-                VALUES(?,?,?,?,?,?,?)""",(self.principal.owner_id,project_id,kind,outcome,details,previous,digest))
+            self._record_in_transaction(db,project_id,kind,outcome,details)
 
     def preview(self,action,project_id,params):
         try:
@@ -64,14 +67,13 @@ class AuditedActions:
 
     def confirm(self,ticket,confirmation):
         try:
-            result=self.actions.confirm(ticket,confirmation)
-        except (PermissionError,ValueError,KeyError,Exception) as exc:
+            result=self.actions.confirm(ticket,confirmation,audit_callback=lambda db,r: self._record_in_transaction(
+                db,r.project_id,"confirm","executed",{"action":r.action,"before":r.before,
+                "after":r.after,"version":r.version}))
+        except Exception as exc:
             # Se registra la categoría, nunca el token ni la frase suministrada.
             self._record("unknown","confirm","rejected",{"reason":type(exc).__name__})
             raise
-        self._record(result.project_id,"confirm","executed",
-                     {"action":result.action,"before":result.before,"after":result.after,
-                      "version":result.version})
         return result
 
     def set_project_permission(self,project_id,allowed,expected_version=None):
