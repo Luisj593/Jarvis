@@ -1,0 +1,89 @@
+{
+  "topic": "Facturación electrónica en República Dominicana",
+  "jurisdiction": "DO",
+  "verified_on": "2026-11-23",
+  "authority": "DGII",
+  "priority": "alta",
+  "records": [
+    {
+      "title": "Marco legal y obligatoriedad",
+      "summary": "La Ley 32-23 regula la facturación electrónica dominicana; el Decreto 587-24 establece su reglamento. Verificar siempre avisos DGII y clasificación del contribuyente antes de concluir plazos.",
+      "url": "https://www.dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Paginas/marcoLegal.aspx",
+      "source": "DGII",
+      "status": "reference",
+      "category": "facturacion_electronica_rd"
+    },
+    {
+      "title": "Tipos de e-CF y e-NCF",
+      "summary": "Los comprobantes electrónicos se identifican con serie E, dos dígitos de tipo y diez dígitos secuenciales. Tipos: 31 crédito fiscal; 32 consumo; 33 nota débito; 34 nota crédito; 41 compras; 43 gastos menores; 44 regímenes especiales; 45 gubernamental. Consultar catálogo y XSD vigente para otros tipos.",
+      "url": "https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscales/Paginas/comprobantesFiscalesElectronicos.aspx",
+      "source": "DGII",
+      "status": "reference",
+      "category": "facturacion_electronica_rd"
+    },
+    {
+      "title": "XML y firma digital",
+      "summary": "Los e-CF se construyen como documentos XML sujetos a formatos y esquemas XSD de DGII; requieren firma digital. El formato incluye encabezado, detalle, totales, descuentos o recargos, referencias, fecha/hora y firma. No asumir que un PDF sustituye al XML firmado.",
+      "url": "https://www.dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Documentacin%20sobre%20eCF/Formatos%20XML/Formato%20Comprobante%20Fiscal%20Electr%C3%B3nico%20%28e-CF%29%20v1.0.pdf",
+      "source": "DGII",
+      "status": "reference",
+      "category": "facturacion_electronica_rd"
+    },
+    {
+      "title": "Integración técnica y certificación",
+      "summary": "La DGII publica descripción técnica de servicios, formatos XML, esquemas XSD, firma, acuse, aprobación comercial, anulación, resumen de consumo, pruebas y contingencia. Un emisor requiere autorización y certificación conforme a su modalidad.",
+      "url": "https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Paginas/documentacionSobreE-CF.aspx",
+      "source": "DGII",
+      "status": "reference",
+      "category": "facturacion_electronica_rd"
+    },
+    {
+      "title": "Opciones de implementación",
+      "summary": "Los contribuyentes pueden implementar facturación electrónica mediante desarrollo propio autorizado, proveedor certificado o Facturador Gratuito, sujeto a los requisitos y criterios DGII.",
+      "url": "https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Paginas/default.aspx",
+      "source": "DGII",
+      "status": "reference",
+      "category": "facturacion_electronica_rd"
+    },
+    {
+      "title": "Estados de comprobantes",
+      "summary": "DGII puede mostrar estados Aceptado, Aceptado Condicional, Rechazado o En Proceso. Un e-CF no encontrado puede indicar que el emisor aún no lo ha remitido. El software debe guardar trazabilidad y consultar estados, sin asumir aceptación inmediata.",
+      "url": "https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscales/Paginas/comprobantesFiscalesElectronicos.aspx",
+      "source": "DGII",
+      "status": "reference",
+      "category": "facturacion_electronica_rd"
+    },
+    {
+      "title": "Plazos de implementación",
+      "summary": "La Ley 32-23 establece fases por clasificación. La DGII publicó extensiones y avisos posteriores; los plazos deben verificarse en los listados y avisos vigentes antes de asesorar a un contribuyente.",
+      "url": "https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Paginas/Listados-contribuyentes-obligados-implementar-facturacion-electronica.aspx",
+      "source": "DGII",
+      "status": "reference",
+      "category": "facturacion_electronica_rd"
+    },
+    {
+      "title": "Aviso DGII del 16 noviembre 2026",
+      "summary": "La DGII anunció que por el momento no aplicaría multas, penalidades ni bloqueos por no completar la implementación al 15 de noviembre de 2026, mientras mantenía acompañamiento. Esta postura es temporal y no deroga la obligación legal; revisar novedades antes de usarla.",
+      "url": "https://dgii.gov.do/noticias/Paginas/DGII-mantendra-acompa%C3%B1amiento-para-Facturacion-Electronica-sin-aplicar-momento-multas-ni-bloqueos.aspx",
+      "source": "DGII",
+      "status": "reference",
+      "category": "facturacion_electronica_rd"
+    },
+    {
+      "title": "Diseño de software POS y ERP (recomendación técnica)",
+      "summary": "Para implementar e-CF en POS/ERP conviene separar cálculo tributario, asignación de secuencias, generación XML, validación XSD, firma digital, envío, recepción de respuestas, reintentos idempotentes, contingencia, auditoría y archivo. Es recomendación de arquitectura, no texto normativo.",
+      "url": "https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Paginas/documentacionSobreE-CF.aspx",
+      "source": "DGII",
+      "status": "reference",
+      "category": "facturacion_electronica_rd"
+    },
+    {
+      "title": "Actualizaciones técnicas de 2026",
+      "summary": "La DGII mantiene documentos técnicos y XSD con modificaciones de 2026. JARVIS debe comparar versiones y fechas oficiales antes de recomendar integraciones, y no inventar endpoints, credenciales, certificados ni reglas de validación.",
+      "url": "https://dgii.gov.do/cicloContribuyente/facturacion/comprobantesFiscalesElectronicosE-CF/Paginas/documentacionSobreE-CF.aspx",
+      "source": "DGII",
+      "status": "reference",
+      "category": "facturacion_electronica_rd"
+    }
+  ]
+}
