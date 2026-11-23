@@ -10,6 +10,7 @@ from jarvis_core.projects import ProjectRegistry, ProjectConflict
 from jarvis_core.responses import ResponseComposer
 from jarvis_core.audit import AuditedActions
 from jarvis_core.research import Research,ResearchError
+from project_monitor import inventory as project_inventory,report as project_report
 
 PERMISSIONS=frozenset({"memory:read","memory:write","action:execute"})
 
@@ -26,6 +27,10 @@ def dispatch(method,path,data=None):
     projects,responses,actions=_services()
     data=data or {}
     try:
+        if method=="GET" and path=="/v1/core/monitor/catalog":
+            return 200,project_inventory()
+        if method=="GET" and path=="/v1/core/monitor/report":
+            return 200,project_report()
         if path.startswith("/v1/core/research/"):
             research=Research(os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite"),
                               Principal(os.environ["JARVIS_OWNER_ID"],PERMISSIONS))
