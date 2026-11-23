@@ -9,6 +9,8 @@ import android.graphics.*
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
+import android.net.Uri
 import android.view.Gravity
 import android.view.View
 import android.widget.*
@@ -56,6 +58,14 @@ class MainActivity : Activity() {
    status.text="Micrófono detenido"
   }
   root.addView(stop)
+  root.addView(card("Configurar batería en segundo plano","◉") {
+   AlertDialog.Builder(this).setTitle("Permitir actividad en segundo plano")
+    .setMessage("Para mejorar la continuidad de JARVIS, configura la batería de la aplicación como Sin restricciones, si tu teléfono ofrece esa opción. Android puede interrumpir el micrófono incluso con este ajuste. JARVIS no se activará automáticamente tras reiniciar el teléfono.")
+    .setNegativeButton("Cancelar",null)
+    .setPositiveButton("Abrir ajustes"){_,_->
+     startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:$packageName")))
+    }.show()
+  })
   root.addView(card("Gestiona tus proyectos","✦") {
    showInfo("Proyectos","El núcleo de proyectos está disponible en la API protegida de JARVIS. La sincronización móvil requiere autenticación adicional.")
   })
