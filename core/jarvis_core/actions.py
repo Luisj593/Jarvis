@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
+from hmac import compare_digest
 from secrets import token_urlsafe
 from uuid import uuid4
 from .projects import ProjectRegistry, ProjectConflict, STATES
@@ -20,6 +21,7 @@ class ActionPreview:
     version: int
     expires_at: str
     executed: bool = False
+    risk: str = "low"
 
 @dataclass(frozen=True)
 class ActionResult:
@@ -42,6 +44,45 @@ class ControlledActions:
                 action TEXT NOT NULL,before_status TEXT NOT NULL,after_status TEXT NOT NULL,
                 project_version INTEGER NOT NULL,secret_hash TEXT NOT NULL,
                 expires_at TEXT NOT NULL,consumed INTEGER NOT NULL DEFAULT 0)""")
+            db.execute("""CREATE TABLE IF NOT EXISTS project_action_policies(
+                owner_id TEXT NOT NULL,project_id TEXT NOT NULL,
+                allowed INTEGER NOT NULL DEFAULT 0,version INTEGER NOT NULL DEFAULT 1,
+                PRIMARY KEY(owner_id,project_id))""")
+            cols={row[1] for row in db.execute("PRAGMA table_info(action_tickets)")}
+            if "policy_version" not in cols:
+                db.execute("ALTER TABLE action_tickets ADD COLUMN policy_version INTEGER NOT NULL DEFAULT 0")
+            if "risk" not in cols:
+                db.execute("ALTER TABLE action_tickets ADD COLUMN risk TEXT NOT NULL DEFAULT 'low'")
+
+    def set_project_permission(self, project_id, allowed, expected_version=None):
+        """Configuración explícita del propietario, con versión y revocación."""
+        require_permission(self.principal,"action:execute")
+        require_permission(self.principal,"memory:write")
+        if type(allowed) is not bool: raise ValueError("permiso inválido")
+        if expected_version is not None and (type(expected_version) is not int or expected_version<1):
+            raise ValueError("versión inválida")
+        with self.store._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if self.projects._get(db,project_id) is None:
+                raise KeyError("proyecto inexistente o sin acceso")
+            row=db.execute("SELECT version FROM project_action_policies WHERE owner_id=? AND project_id=?",
+                           (self.principal.owner_id,project_id)).fetchone()
+            if row is None:
+                if expected_version is not None: raise ProjectConflict("política desactualizada")
+                db.execute("INSERT INTO project_action_policies(owner_id,project_id,allowed) VALUES(?,?,?)",
+                           (self.principal.owner_id,project_id,int(allowed)))
+                return 1
+            if row[0]!=expected_version: raise ProjectConflict("política desactualizada")
+            db.execute("UPDATE project_action_policies SET allowed=?,version=version+1 WHERE owner_id=? AND project_id=?",
+                       (int(allowed),self.principal.owner_id,project_id))
+            return row[0]+1
+
+    def _policy(self,db,project_id):
+        row=db.execute("SELECT allowed,version FROM project_action_policies WHERE owner_id=? AND project_id=?",
+                       (self.principal.owner_id,project_id)).fetchone()
+        # Compatibilidad con proyectos anteriores a la actividad 14.
+        if row is None: return (1,0)
+        return row
 
     def catalog(self):
         require_permission(self.principal,"memory:read")
@@ -67,17 +108,20 @@ class ControlledActions:
             row=self.projects._get(db,project_id)
             if row is None: raise KeyError("proyecto inexistente o sin acceso")
             if row[4]==status: raise ValueError("el proyecto ya tiene ese estado")
+            allowed,policy_version=self._policy(db,project_id)
+            if not allowed: raise PermissionError("acción prohibida para este proyecto")
+            risk="high" if status in ("archived","completed") else "low"
             db.execute("""INSERT INTO action_tickets
                 (id,owner_id,project_id,action,before_status,after_status,project_version,secret_hash,expires_at)
-                VALUES(?,?,?,?,?,?,?,?,?)""",
+                ,policy_version,risk) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
                 (ticket_id,self.principal.owner_id,project_id,action,row[4],status,row[5],
-                 sha256(token.encode()).hexdigest(),expires))
-        return ActionPreview(ticket_id+"."+token,action,project_id,row[4],status,row[5],expires)
+                 sha256(token.encode()).hexdigest(),expires,policy_version,risk))
+        return ActionPreview(ticket_id+"."+token,action,project_id,row[4],status,row[5],expires,False,risk)
 
     def confirm(self, ticket, confirmation):
         require_permission(self.principal,"action:execute")
         require_permission(self.principal,"memory:write")
-        if confirmation!="CONFIRMAR ACCIÓN":
+        if confirmation not in ("CONFIRMAR ACCIÓN","CONFIRMAR ACCIÓN DE ALTO RIESGO"):
             raise PermissionError("confirmación explícita requerida")
         if not isinstance(ticket,str) or "." not in ticket:
             raise ValueError("ticket inválido")
@@ -86,13 +130,18 @@ class ControlledActions:
         with self.store._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             row=db.execute("""SELECT project_id,action,before_status,after_status,
-                project_version,secret_hash,expires_at,consumed FROM action_tickets
+                project_version,secret_hash,expires_at,consumed,policy_version,risk FROM action_tickets
                 WHERE id=? AND owner_id=?""",(ticket_id,self.principal.owner_id)).fetchone()
-            if row is None or row[7] or sha256(secret.encode()).hexdigest()!=row[5]:
+            if row is None or row[7] or not compare_digest(sha256(secret.encode()).hexdigest(),row[5]):
                 raise PermissionError("ticket inválido, consumido o ajeno")
             if datetime.now(timezone.utc)>=datetime.fromisoformat(row[6]):
                 raise PermissionError("ticket caducado")
             project_id,action,before,after,version=row[:5]
+            if row[9]=="high" and confirmation!="CONFIRMAR ACCIÓN DE ALTO RIESGO":
+                raise PermissionError("confirmación reforzada requerida")
+            allowed,policy_version=self._policy(db,project_id)
+            if not allowed or policy_version!=row[8]:
+                raise PermissionError("política revocada o modificada")
             current=self.projects._get(db,project_id)
             if current is None or current[5]!=version or current[4]!=before:
                 raise ProjectConflict("el proyecto cambió desde la simulación")
