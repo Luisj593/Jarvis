@@ -14,6 +14,7 @@ from project_monitor import inventory as project_inventory,report as project_rep
 from jarvis_core.implementation import ImplementationEngine,ExecutionConflict
 from jarvis_core.implementation_worker import AnalysisWorker
 from jarvis_core.critical_analysis import assess
+from jarvis_core.web_navigation import research_urls,WebNavigationError
 
 PERMISSIONS=frozenset({"memory:read","memory:write","action:execute"})
 
@@ -30,6 +31,9 @@ def dispatch(method,path,data=None):
     projects,responses,actions=_services()
     data=data or {}
     try:
+        if method=="POST" and path=="/v1/core/web/browse":
+            if set(data)!={"urls"}:return 400,{"error":"invalid_parameters"}
+            return 200,research_urls(data["urls"])
         if method=="POST" and path=="/v1/core/analysis/critical":
             if set(data)!={"proposal","evidence","risks","unknowns","requires_production"}:
                 return 400,{"error":"invalid_parameters"}
@@ -112,6 +116,8 @@ def dispatch(method,path,data=None):
             version=actions.set_project_permission(data["project_id"],data["allowed"],data["expected_version"])
             return 200,{"policy_version":version}
         return 404,{"error":"not_found"}
+    except WebNavigationError:
+        return 400,{"error":"invalid_web_request"}
     except ResearchError:
         return 502,{"error":"research_source_unavailable"}
     except (ValueError,TypeError) :
