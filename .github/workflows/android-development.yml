@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - feature/jarvis-core-architecture-day02
+      - feature/openai-bridge-20261123
     paths:
       - 'app/**'
       - '.github/workflows/android-development.yml'
