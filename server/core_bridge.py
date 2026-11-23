@@ -12,6 +12,7 @@ from jarvis_core.audit import AuditedActions
 from jarvis_core.research import Research,ResearchError
 from project_monitor import inventory as project_inventory,report as project_report
 from jarvis_core.implementation import ImplementationEngine,ExecutionConflict
+from jarvis_core.implementation_worker import AnalysisWorker
 
 PERMISSIONS=frozenset({"memory:read","memory:write","action:execute"})
 
@@ -31,6 +32,12 @@ def dispatch(method,path,data=None):
         if path.startswith("/v1/core/implementation/"):
             engine=ImplementationEngine(os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite"),
                                         Principal(os.environ["JARVIS_OWNER_ID"],PERMISSIONS))
+            if method=="POST" and path=="/v1/core/implementation/process":
+                if set(data)!={"limit"}:return 400,{"error":"invalid_parameters"}
+                worker=AnalysisWorker(os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite"),
+                                      Principal(os.environ["JARVIS_OWNER_ID"],PERMISSIONS))
+                return 200,{"processed":worker.process_once(data["limit"]),
+                            "mode":"static_intake_only"}
             if method=="GET" and path=="/v1/core/implementation/runs":
                 return 200,{"runs":engine.list()}
             if method=="POST" and path=="/v1/core/implementation/create":
