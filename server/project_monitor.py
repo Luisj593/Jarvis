@@ -44,6 +44,7 @@ def report(fetch=_request):
             "github":[],"railway":[],"warnings":[]}
     gh=os.environ.get("JARVIS_MONITOR_GITHUB_TOKEN","")
     rw=os.environ.get("JARVIS_MONITOR_RAILWAY_TOKEN","")
+    result["alerts"]=[]
     for name in inv["github"]:
         item={"repository":name,"status":"unknown","open_issues":None,
               "last_workflow":None,"error":None}
@@ -55,8 +56,13 @@ def report(fetch=_request):
                 item["open_issues"]=repo.get("open_issues_count")
                 runs=fetch(GITHUB_API+"/repos/"+name+"/actions/runs?per_page=1",gh)
                 latest=(runs.get("workflow_runs") or [None])[0]
-                if latest:item["last_workflow"]={"name":latest.get("name"),"status":latest.get("status"),
+                if latest:
+                    item["last_workflow"]={"name":latest.get("name"),"status":latest.get("status"),
                        "conclusion":latest.get("conclusion"),"url":latest.get("html_url")}
+                    if latest.get("conclusion") in ("failure","timed_out","cancelled","action_required"):
+                        result["alerts"].append({"provider":"github","project":name,
+                            "kind":"workflow_problem","severity":"warning",
+                            "detail":latest.get("conclusion"),"url":latest.get("html_url")})
             except (urllib.error.URLError,ValueError,KeyError,TimeoutError) as exc:
                 item["error"]="github_unavailable"
         result["github"].append(item)
@@ -88,7 +94,7 @@ def report(fetch=_request):
         result["railway"].append(item)
     if not gh:result["warnings"].append("GitHub live monitoring requires a read-only token")
     if not rw:result["warnings"].append("Railway live monitoring requires a read-only token")
-    result["summary"]={"github_repositories":len(result["github"]),
+    result["summary"]={"alerts":len(result["alerts"]),"github_repositories":len(result["github"]),
                        "railway_projects":len(result["railway"]),
                        "github_errors":sum(bool(x["error"]) for x in result["github"]),
                        "railway_errors":sum(bool(x["error"]) for x in result["railway"])}
