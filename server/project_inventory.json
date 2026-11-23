@@ -1,0 +1,38 @@
+{
+  "discovered_at": "2026-11-23",
+  "source": "GitHub and Railway connector inventory; snapshot, not live health",
+  "github": [
+    "Luisj593/Plazado",
+    "Luisj593/Jarvis"
+  ],
+  "railway": [
+    {
+      "name": "JARVIS-AI",
+      "id": "8e9632bb-2d0f-430d-b1da-9977c7ed3c95"
+    },
+    {
+      "name": "NightGest-ERP-Testing",
+      "id": "c939a170-31a8-463f-b3c0-0b089553ab56"
+    },
+    {
+      "name": "NightGest-ERP",
+      "id": "9234424d-85a2-4448-be24-2012cb042959"
+    },
+    {
+      "name": "SV-Personalizado",
+      "id": "ef7e2987-346b-4037-954a-bd908f4d2308"
+    },
+    {
+      "name": "ServicioPro",
+      "id": "d8d9f6dd-4a86-4044-ab23-6d04351d7185"
+    },
+    {
+      "name": "Plazado - Pruebas",
+      "id": "f3a02a6b-8f5d-4b93-b05d-f63b17c1b42b"
+    },
+    {
+      "name": "shimmering-gentleness",
+      "id": "01832222-f1c6-45d2-9391-177e19791765"
+    }
+  ]
+}
