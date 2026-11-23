@@ -1,9 +1,10 @@
-# JARVIS Brain API (experimental)
+# JARVIS Brain — motor de reglas sin modelo de IA
 
-Endpoints: GET /health (public); GET /projects and GET/POST /lessons (Bearer JARVIS_API_TOKEN required).
+Servidor experimental de aprendizaje explícito, sin dependencia de ChatGPT ni de modelos de lenguaje externos.
 
-**Security:** never commit tokens. Set JARVIS_API_TOKEN in Railway variables. Without token, protected endpoints are disabled. The database defaults to /tmp and **is ephemeral**; configure a persistent volume and JARVIS_DB_PATH before real training. This is a training API prototype, not an autonomous AI model, and projects are catalog-only, not connected.
+- GET /health: diagnóstico.
+- GET /lessons: consulta enseñanzas (requiere Bearer JARVIS_API_TOKEN).
+- POST /lessons: guarda enseñanza por proyecto.
+- POST /chat: responde por coincidencia de reglas; acepta `message` y `project`, y reconoce `aprende:`, `recuerda:` y `cuando diga ` para registrar enseñanzas.
 
-## Conversación contextual (en desarrollo)
-
-POST /chat requiere Authorization: Bearer <JARVIS_API_TOKEN> y JSON {"message":"...","history":[{"role":"user","content":"..."}],"project":"general"}. El historial se envía desde el cliente (máximo 20 turnos) y las enseñanzas del proyecto se leen desde SQLite. Requiere configurar OPENAI_API_KEY como variable privada en Railway y JARVIS_API_TOKEN. Sin ambas, el chat no está disponible. No guardar claves en GitHub ni dentro de la APK. No se realizan acciones en otros proyectos. Falta integrar el cliente Android y verificar la conversación real.
+Limitaciones: no entiende conversación abierta ni interpreta intenciones complejas; los comandos son coincidencias textuales. Requiere configurar JARVIS_API_TOKEN como secreto de Railway. La aplicación Android aún no está conectada a este endpoint. El almacenamiento persistente debe mantenerse en /data/jarvis.sqlite con volumen Railway. No enviar claves dentro de la APK ni guardar secretos en las enseñanzas. No hay acciones automáticas en otros proyectos.
