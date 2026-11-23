@@ -170,14 +170,15 @@ class MainActivity : Activity() {
   refresh()
  }
  private fun configureApi(){
-  val field=EditText(this).apply {hint="Token de acceso a Railway Development";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD}
+  val field=EditText(this).apply {hint="Token JARVIS_API_TOKEN";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD;setSingleLine(true)}
   AlertDialog.Builder(this).setTitle("Conexión segura a Railway")
    .setMessage("Introduce el token JARVIS_API_TOKEN configurado en Railway Development. Se cifrará en el almacén seguro de Android. No lo compartas ni lo incluyas en capturas.")
    .setView(field).setNegativeButton("Cancelar",null)
    .setNeutralButton("Eliminar token"){_,_->JarvisApi(this).clearToken();status.text="Credencial eliminada"}
    .setPositiveButton("Guardar"){_,_->
-    try {JarvisApi(this).saveToken(field.text.toString().trim());status.text="Token guardado de forma cifrada"}
-    catch(e:Exception){status.text="No se pudo guardar el token"}
+    try {JarvisApi(this).saveToken(field.text.toString().trim());status.text="Token guardado de forma cifrada";showInfo("Conexión","Token almacenado. Ya puedes consultar los informes.")}
+    catch(e:IllegalArgumentException){status.text="Token inválido";showInfo("Token inválido","Introduce el valor completo de JARVIS_API_TOKEN, sin espacios ni saltos de línea (16 a 512 caracteres).")}
+    catch(e:Exception){status.text="Error de almacenamiento seguro";showInfo("Almacenamiento seguro","Android no pudo cifrar o guardar la credencial. Comprueba que el dispositivo tenga bloqueo de pantalla configurado y vuelve a intentarlo. Error: "+e.javaClass.simpleName)}
    }.show()
  }
  private fun apiCall(path:String,payload:JSONObject?,title:String){
