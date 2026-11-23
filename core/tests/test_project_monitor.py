@@ -29,6 +29,8 @@ class MonitorTests(unittest.TestCase):
   self.assertEqual(len(calls),11)
   self.assertEqual(data["summary"]["github_errors"],0)
   self.assertEqual(data["summary"]["railway_errors"],0)
+  self.assertEqual(data["summary"]["alerts"],2)
+  self.assertTrue(all(a["kind"]=="workflow_problem" for a in data["alerts"]))
   self.assertTrue(all(m=="GET" or (m=="POST" and u==RAILWAY_API and "query" in p and "mutation" not in p["query"]) for u,m,p in calls))
   self.assertNotIn("secret",str(data))
  def test_reject_arbitrary_endpoint(self):
