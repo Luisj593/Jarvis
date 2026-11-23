@@ -108,6 +108,7 @@ class MainActivity : Activity() {
   root.addView(card("Borrar memoria local","×") {clearMemory()})
   val scroll=ScrollView(this).apply {isFillViewport=true;addView(root)}
   setContentView(scroll)
+  requestCalendarAccessIfNeeded()
   if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)
    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),12)
  }
@@ -260,10 +261,36 @@ class MainActivity : Activity() {
    }
   }
  }
+ private fun requestCalendarAccessIfNeeded(){
+  val prefs=getSharedPreferences("jarvis_calendar_permissions",MODE_PRIVATE)
+  if(checkSelfPermission(Manifest.permission.READ_CALENDAR)==PackageManager.PERMISSION_GRANTED)return
+  if(prefs.getBoolean("intro_shown",false))return
+  prefs.edit().putBoolean("intro_shown",true).apply()
+  AlertDialog.Builder(this).setTitle("Conectar calendario con JARVIS")
+   .setMessage("¿Permites que JARVIS consulte los eventos de tu calendario para organizar cumpleaños, tareas y reuniones? La información se leerá en el dispositivo y no se enviará a Railway. Puedes rechazarlo y seguir utilizando las demás funciones.")
+   .setNegativeButton("Ahora no",null)
+   .setPositiveButton("Permitir acceso"){_,_->
+    requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR),45)
+   }.show()
+ }
+ override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){
+  super.onRequestPermissionsResult(requestCode,permissions,grantResults)
+  if(requestCode==45){
+   if(grantResults.isNotEmpty() && grantResults[0]==PackageManager.PERMISSION_GRANTED){
+    status.text="Calendario conectado"
+    showInfo("Calendario conectado","JARVIS ya puede consultar y clasificar tus próximos eventos.")
+   }else{
+    status.text="Calendario sin permiso"
+    showInfo("Permiso no concedido","Puedes activar el calendario más adelante desde Organiza tu agenda o en los ajustes de Android.")
+   }
+  }
+ }
  private fun openDeviceCalendar(){
   if(checkSelfPermission(Manifest.permission.READ_CALENDAR)!=PackageManager.PERMISSION_GRANTED){
-   requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR),45)
-   showInfo("Permiso de calendario","Concede permiso de lectura y vuelve a abrir la agenda. JARVIS no enviará tus eventos al servidor.")
+   AlertDialog.Builder(this).setTitle("Permiso de calendario")
+    .setMessage("Para clasificar cumpleaños, tareas y reuniones, JARVIS necesita leer los eventos del dispositivo.")
+    .setNegativeButton("Cancelar",null)
+    .setPositiveButton("Solicitar permiso"){_,_->requestPermissions(arrayOf(Manifest.permission.READ_CALENDAR),45)}.show()
    return
   }
   val options=arrayOf("Ver agenda clasificada","Crear evento en calendario","Abrir calendario del dispositivo")
