@@ -100,7 +100,23 @@ def monitor_loop():
             print("JARVIS_MONITOR_LOOP_ERROR "+type(exc).__name__,flush=True)
         time.sleep(interval)
 
+def technology_learning_loop():
+    from jarvis_core.technology_knowledge import TechnologyKnowledge
+    from jarvis_core.security import Principal
+    while True:
+        try:
+            owner=os.environ["JARVIS_OWNER_ID"]
+            db=os.environ.get("JARVIS_CORE_DB_PATH",os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite")+".core")
+            knowledge=TechnologyKnowledge(db,Principal(owner,frozenset({"memory:read","memory:write"})))
+            result=knowledge.collect()
+            print("JARVIS_TECH_KNOWLEDGE "+json.dumps(result,ensure_ascii=False),flush=True)
+        except Exception as exc:
+            print("JARVIS_TECH_KNOWLEDGE_ERROR "+type(exc).__name__,flush=True)
+        time.sleep(86400)
+
 if __name__=="__main__":
+    if os.environ.get("JARVIS_TECH_LEARNING_ENABLED")=="1":
+        threading.Thread(target=technology_learning_loop,name="jarvis-tech-learning",daemon=True).start()
     if os.environ.get("JARVIS_MONITOR_PERIODIC_ENABLED")=="1":
         threading.Thread(target=monitor_loop,name="jarvis-monitor",daemon=True).start()
 
