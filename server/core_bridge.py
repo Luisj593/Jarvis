@@ -11,6 +11,7 @@ from jarvis_core.responses import ResponseComposer
 from jarvis_core.audit import AuditedActions
 from jarvis_core.research import Research,ResearchError
 from jarvis_core.technology_knowledge import TechnologyKnowledge
+from jarvis_core.ecf_audit import assess_ecf_module
 from project_monitor import inventory as project_inventory,report as project_report
 from jarvis_core.implementation import ImplementationEngine,ExecutionConflict
 from jarvis_core.implementation_worker import AnalysisWorker
@@ -62,6 +63,9 @@ def dispatch(method,path,data=None):
             return 200,project_inventory()
         if method=="GET" and path=="/v1/core/monitor/report":
             return 200,project_report()
+        if method=="POST" and path=="/v1/core/audit/ecf":
+            if set(data)!={"project_name","files"}:return 400,{"error":"invalid_parameters"}
+            return 200,{"assessment":assess_ecf_module(data["project_name"],data["files"])}
         if path.startswith("/v1/core/knowledge/"):
             knowledge=TechnologyKnowledge(os.environ.get("JARVIS_CORE_DB_PATH",os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite")+".core"),
                 Principal(os.environ["JARVIS_OWNER_ID"],PERMISSIONS))
