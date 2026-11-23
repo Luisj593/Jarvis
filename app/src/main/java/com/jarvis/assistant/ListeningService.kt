@@ -16,6 +16,8 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private var tts:TextToSpeech?=null
  private var running=false
  private var errors=0
+ private var retryPending=false
+ private var lastStart=0L
  private var conversationUntil=0L
  private var speaking=false
  private var ttsReady=false
@@ -38,15 +40,25 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private fun listen(){
   if(!running || speaking)return
   if(!SpeechRecognizer.isRecognitionAvailable(this)){running=false;getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf();return}
+  retryPending=false
   recognizer?.destroy()
-  recognizer=SpeechRecognizer.createSpeechRecognizer(this)
+  recognizer=if(Build.VERSION.SDK_INT>=31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this))
+   SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+  else SpeechRecognizer.createSpeechRecognizer(this)
   recognizer?.setRecognitionListener(object:RecognitionListener{
    override fun onReadyForSpeech(params:Bundle?){}
    override fun onBeginningOfSpeech(){}
    override fun onRmsChanged(rmsdB:Float){}
    override fun onBufferReceived(buffer:ByteArray?){}
    override fun onEndOfSpeech(){}
-   override fun onError(error:Int){errors++; if(error==SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS || errors>=12){running=false;getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf();return};retry(if(error==SpeechRecognizer.ERROR_RECOGNIZER_BUSY)1500 else 700)}
+   override fun onError(error:Int){
+    errors++
+    if(error==SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS){
+     running=false;getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf();return
+    }
+    // Avoid rapid recognizer restarts, which can produce repeated system tones.
+    retry(if(error==SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 3500L else minOf(15000L,2000L*minOf(errors,7)))
+   }
    override fun onResults(results:Bundle?){
     errors=0
     val spoken=results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
@@ -92,21 +104,29 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       val result=tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-reply")
       if(result==TextToSpeech.ERROR){speaking=false;retry(600)}
      } else retry(600)
-    } else retry(350)
+    } else retry(1800)
    }
    override fun onPartialResults(partialResults:Bundle?){}
    override fun onEvent(eventType:Int,params:Bundle?){}
   })
   try{
+   lastStart=System.currentTimeMillis()
    recognizer?.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply{
     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
     putExtra(RecognizerIntent.EXTRA_LANGUAGE,"es-DO")
     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,false)
+    putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE,packageName)
    })
-  }catch(e:Exception){errors++;if(errors<12)retry(2000) else {getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf()}}
+  }catch(e:Exception){errors++;retry(minOf(15000L,2000L*minOf(errors,7)))}
  }
- private fun retry(delay:Long){handler.postDelayed({if(running)listen()},delay)}
- private fun shutdown(){speaking=false;handler.removeCallbacksAndMessages(null);recognizer?.cancel();recognizer?.destroy();recognizer=null;tts?.stop();tts?.shutdown();tts=null}
+ private fun retry(delay:Long){
+  if(!running || retryPending)return
+  retryPending=true
+  val sinceStart=System.currentTimeMillis()-lastStart
+  val safeDelay=maxOf(delay,1200L-sinceStart)
+  handler.postDelayed({retryPending=false;if(running && !speaking)listen()},safeDelay)
+ }
+ private fun shutdown(){speaking=false;retryPending=false;handler.removeCallbacksAndMessages(null);recognizer?.cancel();recognizer?.destroy();recognizer=null;tts?.stop();tts?.shutdown();tts=null}
  override fun onInit(status:Int){
   if(status==TextToSpeech.SUCCESS){
    configureVoice()
