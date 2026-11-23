@@ -1,3 +1,4 @@
+from __future__ import annotations
 """Memoria estructurada explícita: personal, preferencias y proyectos.
 
 No hay extracción automática de datos personales ni aprendizaje implícito.
