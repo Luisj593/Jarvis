@@ -58,6 +58,17 @@ class MainActivity : Activity() {
    status.text="Micrófono detenido"
   }
   root.addView(stop)
+  root.addView(card("Configurar voz de JARVIS","♫") {
+   val profiles=arrayOf("Británica · estilo asistente","Español · pronunciación natural")
+   val prefs=getSharedPreferences("jarvis_voice",MODE_PRIVATE)
+   val selected=if(prefs.getString("profile","british")=="british") 0 else 1
+   AlertDialog.Builder(this).setTitle("Voz de JARVIS")
+    .setSingleChoiceItems(profiles,selected){dialog,which->
+     prefs.edit().putString("profile",if(which==0)"british" else "spanish").apply()
+     status.text="Voz actualizada. Detén y vuelve a activar el micrófono para aplicarla."
+     dialog.dismiss()
+    }.setNegativeButton("Cancelar",null).show()
+  })
   root.addView(card("Configurar batería en segundo plano","◉") {
    AlertDialog.Builder(this).setTitle("Permitir actividad en segundo plano")
     .setMessage("Para mejorar la continuidad de JARVIS, configura la batería de la aplicación como Sin restricciones, si tu teléfono ofrece esa opción. Android puede interrumpir el micrófono incluso con este ajuste. JARVIS no se activará automáticamente tras reiniciar el teléfono.")
