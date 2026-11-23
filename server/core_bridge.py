@@ -11,6 +11,7 @@ from jarvis_core.responses import ResponseComposer
 from jarvis_core.audit import AuditedActions
 from jarvis_core.research import Research,ResearchError
 from project_monitor import inventory as project_inventory,report as project_report
+from jarvis_core.implementation import ImplementationEngine,ExecutionConflict
 
 PERMISSIONS=frozenset({"memory:read","memory:write","action:execute"})
 
@@ -27,6 +28,19 @@ def dispatch(method,path,data=None):
     projects,responses,actions=_services()
     data=data or {}
     try:
+        if path.startswith("/v1/core/implementation/"):
+            engine=ImplementationEngine(os.environ.get("JARVIS_DB_PATH","/tmp/jarvis.sqlite"),
+                                        Principal(os.environ["JARVIS_OWNER_ID"],PERMISSIONS))
+            if method=="GET" and path=="/v1/core/implementation/runs":
+                return 200,{"runs":engine.list()}
+            if method=="POST" and path=="/v1/core/implementation/create":
+                if set(data)!={"project_id","request"}:return 400,{"error":"invalid_parameters"}
+                return 201,{"run":engine.create(data["project_id"],data["request"])}
+            if method=="POST" and path=="/v1/core/implementation/advance":
+                if set(data)!={"run_id","stage","evidence","passed","gate"}:
+                    return 400,{"error":"invalid_parameters"}
+                return 200,{"run":engine.advance(**data)}
+            return 404,{"error":"not_found"}
         if method=="GET" and path=="/v1/core/monitor/catalog":
             return 200,project_inventory()
         if method=="GET" and path=="/v1/core/monitor/report":
@@ -94,5 +108,5 @@ def dispatch(method,path,data=None):
         return 403,{"error":"forbidden"}
     except KeyError:
         return 404,{"error":"not_found"}
-    except ProjectConflict:
+    except (ProjectConflict,ExecutionConflict):
         return 409,{"error":"version_conflict"}
