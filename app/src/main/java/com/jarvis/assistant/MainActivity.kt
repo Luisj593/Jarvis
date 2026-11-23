@@ -140,22 +140,77 @@ class MainActivity : Activity() {
      val railway=result.optJSONArray("railway")
      val stats=result.optJSONObject("summary")
      runOnUiThread {
-      summary.text="Evaluación: ${result.optString("checked_at","Sin fecha")}\\n" +
-       "Alertas: ${stats?.optInt("alerts",0) ?: 0}  ·  Errores GitHub: ${stats?.optInt("github_errors",0) ?: 0}  ·  Errores Railway: ${stats?.optInt("railway_errors",0) ?: 0}"
+      summary.text=buildString {
+       append("Evaluación realizada: ").append(result.optString("checked_at","Sin fecha")).append("\\n")
+       append("Alertas detectadas: ").append(stats?.optInt("alerts",0) ?: 0).append("\\n")
+       append("Errores GitHub: ").append(stats?.optInt("github_errors",0) ?: 0).append("\\n")
+       append("Errores Railway: ").append(stats?.optInt("railway_errors",0) ?: 0)
+      }
       fun addReport(title:String,detail:String){
        reports.addView(card(title,"◈") {showInfo(title,detail)})
       }
       if(github!=null) for(i in 0 until github.length()){
        val item=github.optJSONObject(i) ?: continue
-       addReport("GitHub · ${item.optString("repository")}",
-        "Estado: ${item.optString("status")}\\nError: ${item.optString("error","Ninguno")}\\n" +
-        "Último flujo: ${item.optJSONObject("last_workflow")?.toString(2) ?: "Sin datos"}")
+       val lines=mutableListOf<String>()
+       val repository=item.optString("repository").substringAfterLast('/')
+       lines.add("El repositorio $repository fue evaluado.")
+       lines.add(if(item.optString("status")=="accessible") "El repositorio está accesible."
+        else "No se ha confirmado el acceso al repositorio.")
+       val error=item.optString("error")
+       if(error.isNotBlank() && error!="null")lines.add("Se detectó un problema de consulta: $error.")
+       val workflow=item.optJSONObject("last_workflow")
+       if(workflow==null)lines.add("No hay datos de la última ejecución automática.")
+       else {
+        lines.add("Última ejecución: "+workflow.optString("name","Sin nombre")+".")
+        val conclusion=workflow.optString("conclusion")
+        lines.add(when(conclusion){
+         "success"->"La última ejecución terminó correctamente."
+         "failure","timed_out","cancelled"->"La última ejecución presentó un problema: $conclusion."
+         else->"El estado de la ejecución todavía no está confirmado."
+        })
+       }
+       addReport("GitHub · $repository",lines.mapIndexed {n,line->"${n+1}- $line"}.joinToString("\\n\\n"))
       }
       if(railway!=null) for(i in 0 until railway.length()){
        val item=railway.optJSONObject(i) ?: continue
-       addReport("Railway · ${item.optString("project")}",
-        "Estado: ${item.optString("status")}\\nError: ${item.optString("error","Ninguno")}\\n" +
-        "Servicios y despliegues: ${item.optJSONArray("services")?.toString(2) ?: "Sin datos"}")
+       val name=item.optString("project")
+       val lines=mutableListOf<String>()
+       lines.add("El proyecto $name fue evaluado.")
+       lines.add(if(item.optString("status")=="accessible")
+        "La conexión con Railway está disponible. Esto no confirma que el entorno esté online."
+        else "No se pudo confirmar la conexión con Railway.")
+       val error=item.optString("error")
+       if(error.isNotBlank() && error!="null")lines.add("Se detectó un problema de consulta: $error.")
+       val environments=item.optJSONArray("environments")
+       if(environments!=null && environments.length()>0)
+        lines.add("Entornos registrados: "+(0 until environments.length()).joinToString(", "){environments.optString(it)}+".")
+       val services=item.optJSONArray("services")
+       if(services==null || services.length()==0)lines.add("No se encontraron servicios para evaluar.")
+       else for(j in 0 until services.length()){
+        val service=services.optJSONObject(j) ?: continue
+        val serviceName=service.optString("name","Servicio sin nombre")
+        lines.add("Servicio $serviceName registrado.")
+        val deployments=service.optJSONArray("deployments")
+        if(deployments==null || deployments.length()==0)
+         lines.add("No hay información disponible del despliegue de $serviceName.")
+        else for(k in 0 until deployments.length()){
+         val deployment=deployments.optJSONObject(k) ?: continue
+         val environment=deployment.optString("environment","Sin entorno")
+         val deploymentError=deployment.optString("error")
+         val state=deployment.optString("status")
+         val message=when {
+          deploymentError.isNotBlank() && deploymentError!="null"->"No se pudo consultar el despliegue."
+          state=="SUCCESS"->"El último despliegue finalizó correctamente."
+          state=="FAILED" || state=="CRASHED"->"El último despliegue presentó un fallo."
+          state=="BUILDING"->"El despliegue está compilando."
+          state=="DEPLOYING"->"El despliegue está en curso."
+          state=="no_deployments"->"No hay despliegues registrados."
+          else->"No se ha podido confirmar el estado del despliegue."
+         }
+         lines.add("Servicio $serviceName, entorno $environment: $message")
+        }
+       }
+       addReport("Railway · $name",lines.mapIndexed {n,line->"${n+1}- $line"}.joinToString("\\n\\n"))
       }
       if((github?.length() ?: 0)+(railway?.length() ?: 0)==0)
        summary.text="No se recibieron informes de evaluación."
@@ -221,7 +276,7 @@ class MainActivity : Activity() {
   thread {
    try{
     val response=JarvisApi(this).request(path,payload)
-    val output=response.toString(2).take(3500)
+    val output=if(path=="/v1/core/monitor/report") "Consulta completada. Abre Informes de evaluaciones de JARVIS para ver los resultados detallados." else response.toString(2).take(3500)
     runOnUiThread {status.text="Consulta finalizada";showInfo(title,output)}
    }catch(e:Exception){
     runOnUiThread {status.text="No se completó la consulta";showInfo("Error de conexión",e.message?.take(180) ?: "Error desconocido")}
