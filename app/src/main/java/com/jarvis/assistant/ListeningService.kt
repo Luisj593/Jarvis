@@ -271,7 +271,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       else -> {
        val tokens=phrase.split(Regex("\\s+")).filter { it.length>3 }.toSet()
        val match=lessons.map { lesson -> lesson to lesson.lowercase(Locale.ROOT).split(Regex("\\s+")).count { it in tokens } }.maxByOrNull { it.second }
-       if(JarvisApi(this).configured() || JarvisOpenAi(this).configured()) null
+       if(JarvisApi(this).configured()) null
        else if(match!=null && match.second>=2) "Según lo que me enseñaste: "+match.first
        else "Configura Conectar Railway Development para consultar tus proyectos sin OpenAI."
       }
@@ -294,9 +294,9 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
          val project=result.optString("project")
          handler.post{if(running && requestGeneration==generation)selectedProject=project}
          result.getString("text")
-        }else JarvisOpenAi(this).ask("JARVIS",phrase,previous)
+        }else "Configura Conectar Railway Development para consultar tus proyectos."
        }
-        catch(e:Exception){val detail=e.message.orEmpty();when {detail.contains("401")->"El token del servidor no es válido. Configúralo en JARVIS.";detail.contains("503")->"El servidor no tiene configurada la clave de OpenAI.";detail.contains("502")->"El servidor no pudo obtener una respuesta de OpenAI.";else->"No pude conectar con el servidor. Revisa la conexión y la configuración del puente."}}
+        catch(e:Exception){val detail=e.message.orEmpty();when {detail.contains("401")->"El token del servidor no es válido. Configúralo en JARVIS.";detail.contains("503") || detail.contains("502")->"El servidor de proyectos no está disponible temporalmente.";else->"No pude consultar el servidor de proyectos. Revisa la conexión Railway."}}
        handler.post {if(running && requestGeneration==generation){history=(previous+"\nUsuario: "+phrase+"\nJARVIS: "+reply).takeLast(4000);say(reply)}}
       }
       return
