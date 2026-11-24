@@ -103,10 +103,8 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
      offlineDraft=""
      if(spoken.isBlank())return@post
      if(System.currentTimeMillis()>=conversationUntil && pendingSpeech.isEmpty()){sessionActive=false;history=""}
-     val match=Regex("\\b(?:jarvis|yarvis|yárvis|yervis|harvis)\\b",RegexOption.IGNORE_CASE).find(spoken)
-     if(!sessionActive && match==null)return@post
+     val phrase=WakeWord.command(spoken,sessionActive) ?: return@post
      sessionActive=true;conversationUntil=System.currentTimeMillis()+180000L
-     val phrase=(if(match!=null)spoken.substring(match.range.last+1)else spoken).trim()
      if(phrase.isBlank()){if(pendingSpeech.isEmpty()){generation++;stopOffline();say("Te escucho.")};return@post}
      if(pendingSpeech.isNotEmpty())pendingSpeech.append(' ')
      pendingSpeech.append(phrase)
