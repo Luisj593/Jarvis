@@ -17,6 +17,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private var tts:TextToSpeech?=null
  private var running=false
  private var errors=0
+ private var useDeviceRecognition=true
  private var retryPending=false
  private var lastStart=0L
  private var conversationUntil=0L
@@ -57,11 +58,11 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   val current=++generation
   speechInProgress=false
   recognizer?.destroy()
-  recognizer=if(Build.VERSION.SDK_INT>=31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this))
+  recognizer=if(useDeviceRecognition && Build.VERSION.SDK_INT>=31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this))
    SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
   else SpeechRecognizer.createSpeechRecognizer(this)
   recognizer?.setRecognitionListener(object:RecognitionListener{
-   override fun onReadyForSpeech(params:Bundle?){}
+   override fun onReadyForSpeech(params:Bundle?){if(current==generation)report(if(sessionActive) "Escuchando conversación" else "En espera de Jarvis")}
    override fun onBeginningOfSpeech(){if(current!=generation || speaking)return; speechInProgress=true;flushSpeech?.let{handler.removeCallbacks(it)}}
    override fun onRmsChanged(rmsdB:Float){}
    override fun onBufferReceived(buffer:ByteArray?){}
@@ -70,6 +71,8 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
     if(current!=generation || speaking || !running)return
     speechInProgress=false
     errors++
+    report("Reconocimiento Android: código $error")
+    if(error==12 || error==13 || (errors>=3 && error!=SpeechRecognizer.ERROR_NO_MATCH && error!=SpeechRecognizer.ERROR_SPEECH_TIMEOUT))useDeviceRecognition=false
     if(sessionActive && pendingSpeech.isNotEmpty() && flushSpeech!=null){handler.removeCallbacks(flushSpeech!!);handler.postDelayed(flushSpeech!!,maxOf(0L,flushDeadline-SystemClock.elapsedRealtime()))}
     if(sessionActive && pendingSpeech.isNotEmpty() && flushSpeech!=null){
      retry(1400);return
@@ -113,7 +116,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
    lastStart=System.currentTimeMillis()
    recognizer?.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply{
     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-    putExtra(RecognizerIntent.EXTRA_LANGUAGE,"es-DO")
+    putExtra(RecognizerIntent.EXTRA_LANGUAGE,if(useDeviceRecognition) "es-ES" else "es-DO")
     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,false)
     putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE,packageName)
    })
@@ -132,28 +135,29 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   conversationUntil=System.currentTimeMillis()+180000L
      val prefs=getSharedPreferences("jarvis_lessons",MODE_PRIVATE)
      val lessons=prefs.getStringSet("lessons",emptySet()).orEmpty()
+     val normalized=phrase.lowercase(Locale.ROOT)
      val answer=when {
-      phrase.startsWith("recuerda que ") || phrase.startsWith("aprende que ") || phrase.startsWith("aprende:") -> {
+      normalized.startsWith("recuerda que ") || normalized.startsWith("aprende que ") || normalized.startsWith("aprende:") -> {
        val lesson=phrase.substringAfter("que ",phrase.substringAfter(":","")).trim()
        if(lesson.isBlank()) "Dime qué deseas que recuerde."
        else if(lessons.size>=100) "Mi memoria local llegó al límite de cien enseñanzas."
        else { val next=lessons.toMutableSet();next.add(lesson);prefs.edit().putStringSet("lessons",next).apply(); "Entendido. Recordaré: "+lesson }
       }
-      phrase.contains("qué recuerdas") || phrase.contains("que recuerdas") -> {
+      normalized.contains("qué recuerdas") || normalized.contains("que recuerdas") -> {
        if(lessons.isEmpty()) "Aún no tengo enseñanzas guardadas."
        else "Recuerdo: "+lessons.sorted().take(5).joinToString(". ")
       }
-      phrase.startsWith("olvida que ") -> {
+      normalized.startsWith("olvida que ") -> {
        val target=phrase.removePrefix("olvida que ").trim()
        val matching=lessons.filter { it.lowercase(Locale.ROOT).contains(target) }
        if(target.isBlank() || matching.isEmpty()) "No encontré esa enseñanza."
        else {prefs.edit().putStringSet("lessons",lessons.minus(matching.toSet())).apply();"He olvidado "+matching.size+" enseñanza."}
       }
-      phrase=="terminar conversación" || phrase=="termina la conversación" -> {
+      normalized=="terminar conversación" || normalized=="termina la conversación" -> {
        sessionActive=false;conversationUntil=0L;history=""
        "Conversación terminada. Di Jarvis para volver a hablar."
       }
-      phrase=="hola" || phrase=="buenas" -> "Hola. Te escucho, ¿qué necesitas?"
+      normalized=="hola" || normalized=="buenas" -> "Hola. Te escucho, ¿qué necesitas?"
       phrase.isBlank() -> "Aquí estoy. Puedes continuar hablando."
       else -> {
        val tokens=phrase.split(Regex("\\s+")).filter { it.length>3 }.toSet()
@@ -173,7 +177,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       thread {
        val previous=history
        val reply=try {JarvisOpenAi(this).ask("JARVIS",phrase,previous)}
-        catch(e:Exception){"No pude analizar la solicitud en este momento. Comprueba la conexión."}
+        catch(e:Exception){val detail=e.message.orEmpty();when {detail.contains("401")->"El token del puente no es válido. Configúralo en JARVIS.";detail.contains("503")->"El servidor no tiene configurada la clave de OpenAI.";detail.contains("502")->"El servidor no pudo obtener una respuesta de OpenAI.";else->"No pude conectar con el servidor. Revisa la conexión y la configuración del puente."}}
        handler.post {if(running){history=(previous+"\nUsuario: "+phrase+"\nJARVIS: "+reply).takeLast(4000);say(reply)}}
       }
       return
@@ -211,7 +215,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  }
  private fun configureVoice(){
   val engine=tts ?: return
-  val british=getSharedPreferences("jarvis_voice",MODE_PRIVATE).getString("profile","spanish")=="british"
+  val british=false
   val target=if(british) Locale.UK else Locale("es","DO")
   val available=engine.isLanguageAvailable(target)
   if(available>=TextToSpeech.LANG_AVAILABLE){
