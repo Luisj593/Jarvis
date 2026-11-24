@@ -53,11 +53,61 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   handler.post { listen() }
   return START_STICKY
  }
+ private var offlineModel:org.vosk.Model?=null
+ private var offlineSpeech:org.vosk.android.SpeechService?=null
+ private var offlineLoading=false
+ private var offlineUnavailable=false
+ private fun stopOffline(){
+  offlineSpeech?.let{try{it.cancel();it.shutdown()}catch(_:Exception){}}
+  offlineSpeech=null
+ }
+ private fun listenOffline(){
+  if(!running || speaking || offlineSpeech!=null || offlineLoading)return
+  val model=offlineModel
+  if(model==null){
+   offlineLoading=true
+   report("Preparando reconocimiento local")
+   org.vosk.android.StorageService.unpack(this,"model-es","model-es",
+    {loaded->handler.post{offlineLoading=false;if(running){offlineModel=loaded;listen()}else loaded.close()}},
+    {_->handler.post{offlineLoading=false;offlineUnavailable=true;if(running)retry(500)}})
+   return
+  }
+  val current=++generation
+  try{
+   val rec=org.vosk.Recognizer(model,16000f)
+   val service=org.vosk.android.SpeechService(rec,16000f)
+   offlineSpeech=service
+   report(if(sessionActive) "Escuchando conversación" else "En espera silenciosa de Jarvis")
+   service.startListening(object:org.vosk.android.RecognitionListener{
+    override fun onPartialResult(hypothesis:String?){}
+    override fun onResult(hypothesis:String?){handler.post{
+     if(!running || current!=generation || speaking)return@post
+     val spoken=try{org.json.JSONObject(hypothesis.orEmpty()).optString("text").trim()}catch(_:Exception){""}
+     if(spoken.isBlank())return@post
+     if(System.currentTimeMillis()>=conversationUntil)sessionActive=false
+     val match=Regex("\\b(?:jarvis|yarvis|yárvis|yervis|harvis)\\b",RegexOption.IGNORE_CASE).find(spoken)
+     if(!sessionActive && match==null)return@post
+     sessionActive=true;conversationUntil=System.currentTimeMillis()+180000L
+     val phrase=(if(match!=null)spoken.substring(match.range.last+1)else spoken).trim()
+     if(phrase.isBlank()){generation++;stopOffline();say("Te escucho.");return@post}
+     if(pendingSpeech.isNotEmpty())pendingSpeech.append(' ')
+     pendingSpeech.append(phrase)
+     flushSpeech?.let{handler.removeCallbacks(it)}
+     val task=Runnable{generation++;stopOffline();finishSpeech()}
+     flushSpeech=task;handler.postDelayed(task,2400)
+    }}
+    override fun onFinalResult(hypothesis:String?){}
+    override fun onError(exception:Exception?){handler.post{if(current==generation && running){generation++;stopOffline();offlineUnavailable=true;retry(500)}}}
+    override fun onTimeout(){handler.post{if(current==generation && running){generation++;stopOffline();retry(500)}}}
+   })
+  }catch(e:Exception){stopOffline();offlineUnavailable=true;retry(500)}
+ }
  private var localFallback=false
  private var capture:SilentAudioCapture?=null
  private fun listen(){
   if(!running || speaking || capture!=null)return
   retryPending=false
+  if(!offlineUnavailable){listenOffline();return}
   if(localFallback || !sessionActive || System.currentTimeMillis()>=conversationUntil || !JarvisOpenAi(this).configured()){
    if(!JarvisOpenAi(this).configured() || System.currentTimeMillis()>=conversationUntil)sessionActive=false
    listenLocal();return
@@ -241,7 +291,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   val safeDelay=maxOf(delay,1200L-sinceStart)
   handler.postDelayed({retryPending=false;if(running && !speaking)listen()},safeDelay)
  }
- private fun shutdown(){capture?.stop();capture=null;generation++;speaking=false;retryPending=false;sessionActive=false;pendingSpeech.setLength(0);flushSpeech=null;handler.removeCallbacksAndMessages(null);recognizer?.cancel();recognizer?.destroy();recognizer=null;tts?.stop();tts?.shutdown();tts=null}
+ private fun shutdown(){stopOffline();offlineModel?.close();offlineModel=null;capture?.stop();capture=null;generation++;speaking=false;retryPending=false;sessionActive=false;pendingSpeech.setLength(0);flushSpeech=null;handler.removeCallbacksAndMessages(null);recognizer?.cancel();recognizer?.destroy();recognizer=null;tts?.stop();tts?.shutdown();tts=null}
  override fun onInit(status:Int){
   if(status==TextToSpeech.SUCCESS){
    configureVoice()
