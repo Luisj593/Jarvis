@@ -31,6 +31,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private var generation=0
  private var pendingReply:String?=null
  private var history=""
+ private var selectedProject=""
  private var utterance=0
  private var flushDeadline=0L
  private fun report(message:String){ getSharedPreferences("jarvis_status",MODE_PRIVATE).edit().putString("state",message).apply(); android.util.Log.i("JarvisVoice",message); getSystemService(NotificationManager::class.java).notify(1,Notification.Builder(this,CHANNEL).setContentTitle("JARVIS").setContentText(message).setSmallIcon(android.R.drawable.ic_btn_speak_now).setOngoing(true).setOnlyAlertOnce(true).addAction(Notification.Action.Builder(null,"Detener",PendingIntent.getService(this,1,Intent(this,ListeningService::class.java).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)).build()).build()) }
@@ -270,9 +271,9 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       else -> {
        val tokens=phrase.split(Regex("\\s+")).filter { it.length>3 }.toSet()
        val match=lessons.map { lesson -> lesson to lesson.lowercase(Locale.ROOT).split(Regex("\\s+")).count { it in tokens } }.maxByOrNull { it.second }
-       if(JarvisOpenAi(this).configured()) null
+       if(JarvisApi(this).configured() || JarvisOpenAi(this).configured()) null
        else if(match!=null && match.second>=2) "Según lo que me enseñaste: "+match.first
-       else "Todavía no tengo la conexión OpenAI configurada. Configúrala en la aplicación para analizar solicitudes abiertas."
+       else "Configura Conectar Railway Development para consultar tus proyectos sin OpenAI."
       }
      }
      speaking=true
@@ -286,8 +287,16 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       thread {
        val previous=history
        val requestGeneration=generation
-       val reply=try {JarvisOpenAi(this).ask("JARVIS",phrase,previous)}
-        catch(e:Exception){val detail=e.message.orEmpty();when {detail.contains("401")->"El token del puente no es válido. Configúralo en JARVIS.";detail.contains("503")->"El servidor no tiene configurada la clave de OpenAI.";detail.contains("502")->"El servidor no pudo obtener una respuesta de OpenAI.";else->"No pude conectar con el servidor. Revisa la conexión y la configuración del puente."}}
+       val reply=try {
+        val api=JarvisApi(this)
+        if(api.configured()){
+         val result=api.request("/v1/core/projects/query",org.json.JSONObject().put("message",phrase).put("project",selectedProject))
+         val project=result.optString("project")
+         handler.post{if(running && requestGeneration==generation)selectedProject=project}
+         result.getString("text")
+        }else JarvisOpenAi(this).ask("JARVIS",phrase,previous)
+       }
+        catch(e:Exception){val detail=e.message.orEmpty();when {detail.contains("401")->"El token del servidor no es válido. Configúralo en JARVIS.";detail.contains("503")->"El servidor no tiene configurada la clave de OpenAI.";detail.contains("502")->"El servidor no pudo obtener una respuesta de OpenAI.";else->"No pude conectar con el servidor. Revisa la conexión y la configuración del puente."}}
        handler.post {if(running && requestGeneration==generation){history=(previous+"\nUsuario: "+phrase+"\nJARVIS: "+reply).takeLast(4000);say(reply)}}
       }
       return
