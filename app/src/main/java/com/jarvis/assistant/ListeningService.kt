@@ -57,6 +57,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private var offlineSpeech:org.vosk.android.SpeechService?=null
  private var offlineRecognizer:org.vosk.Recognizer?=null
  private var lastPartial=""
+ private var offlineDraft=""
  private var offlineLoading=false
  private var offlineUnavailable=false
  private fun stopOffline(){
@@ -65,6 +66,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   try{offlineRecognizer?.close()}catch(_:Exception){}
   offlineRecognizer=null
   lastPartial=""
+  offlineDraft=""
  }
  private fun listenOffline(){
   if(!running || speaking || offlineSpeech!=null || offlineLoading)return
@@ -92,13 +94,15 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       flushSpeech?.let{handler.removeCallbacks(it);handler.postDelayed(it,3500)}
      }
      lastPartial=partial
+     offlineDraft=partial
     }}
     override fun onResult(hypothesis:String?){handler.post{
      if(!running || current!=generation || speaking)return@post
      val spoken=try{org.json.JSONObject(hypothesis.orEmpty()).optString("text").trim()}catch(_:Exception){""}
      lastPartial=""
+     offlineDraft=""
      if(spoken.isBlank())return@post
-     if(System.currentTimeMillis()>=conversationUntil)sessionActive=false
+     if(System.currentTimeMillis()>=conversationUntil && pendingSpeech.isEmpty()){sessionActive=false;history=""}
      val match=Regex("\\b(?:jarvis|yarvis|yárvis|yervis|harvis)\\b",RegexOption.IGNORE_CASE).find(spoken)
      if(!sessionActive && match==null)return@post
      sessionActive=true;conversationUntil=System.currentTimeMillis()+180000L
@@ -107,7 +111,10 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
      if(pendingSpeech.isNotEmpty())pendingSpeech.append(' ')
      pendingSpeech.append(phrase)
      flushSpeech?.let{handler.removeCallbacks(it)}
-     val task=Runnable{generation++;stopOffline();finishSpeech()}
+     val task=Runnable{
+      if(offlineDraft.isNotBlank()){pendingSpeech.append(' ').append(offlineDraft);offlineDraft=""}
+      generation++;stopOffline();finishSpeech()
+     }
      flushSpeech=task;handler.postDelayed(task,2400)
     }}
     override fun onFinalResult(hypothesis:String?){}
