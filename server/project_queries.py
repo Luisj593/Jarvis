@@ -7,18 +7,23 @@ def normalize(s):
     return ''.join(c for c in unicodedata.normalize('NFD',s.lower()) if unicodedata.category(c)!='Mn')
 
 def query(message, selected=""):
-    allowed={"plazado":"Luisj593/Plazado","jarvis":"Luisj593/Jarvis"}
+    allowed={"plazado":"Luisj593/Plazado","jarvis":"Luisj593/Jarvis","nightgest":None,"nightgest pruebas":None,"sv personalizado":None,"serviciopro":None,"plazado pruebas":None}
+    aliases={"nightgest erp testing":"nightgest pruebas","nightgest erp":"nightgest","centros nocturnos":"nightgest","sv-personalizado":"sv personalizado","plazado - pruebas":"plazado pruebas","jarvis-ai":"jarvis"}
+
     msg=normalize(message)
+    for alias,target in aliases.items():msg=msg.replace(alias,target)
     matches=[k for k in allowed if re.search(r"\b"+k+r"\b",msg)]
+    matches=[k for k in matches if not any(k!=other and k in other for other in matches)]
     if len(matches)>1:return {"text":"¿Cuál proyecto deseas consultar?","project":""}
     project=matches[0] if matches else normalize(selected)
     if "proyectos" in msg and any(x in msg for x in ("lista","cuales","tengo","muestra")):
-        return {"text":"Proyectos disponibles para consulta: Plazado y Jarvis.","project":project}
-    if project not in allowed:return {"text":"¿Quieres consultar Plazado o Jarvis?","project":""}
+        return {"text":"Proyectos registrados: Plazado, Jarvis, NightGest, NightGest pruebas, SV Personalizado, ServicioPro y Plazado pruebas.","project":project}
+    if project not in allowed:return {"text":"¿Qué proyecto deseas consultar? Puedes decir Plazado, Jarvis, NightGest, SV Personalizado o ServicioPro.","project":""}
     if any(x in msg for x in ("desplieg","railway","produccion")):
         return {"text":"La consulta directa de Railway todavía no está habilitada. No puedo confirmar el despliegue.","project":project}
     if not any(x in msg for x in ("estado","error","fall","compil","prueba","avance","commit","cambio","revision")):
         return {"text":"Proyecto "+project+" seleccionado. Puedo consultar compilaciones y últimos cambios de GitHub.","project":project}
+    if not allowed[project]:return {"text":"Este proyecto está registrado, pero su repositorio GitHub todavía no está vinculado.","project":project}
     token=os.getenv("JARVIS_GITHUB_READ_TOKEN","")
     if not token:return {"text":"Falta configurar el acceso de lectura a GitHub en el servidor.","project":project}
     endpoint="actions/runs?per_page=5" if any(x in msg for x in ("estado","error","fall","compil","prueba","avance")) else "commits?per_page=1"
