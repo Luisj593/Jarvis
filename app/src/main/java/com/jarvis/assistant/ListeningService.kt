@@ -55,11 +55,13 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  }
  private var offlineModel:org.vosk.Model?=null
  private var offlineSpeech:org.vosk.android.SpeechService?=null
+ private var offlineRecognizer:org.vosk.Recognizer?=null
  private var offlineLoading=false
  private var offlineUnavailable=false
  private fun stopOffline(){
   offlineSpeech?.let{try{it.cancel();it.shutdown()}catch(_:Exception){}}
   offlineSpeech=null
+  offlineRecognizer?.close();offlineRecognizer=null
  }
  private fun listenOffline(){
   if(!running || speaking || offlineSpeech!=null || offlineLoading)return
@@ -75,11 +77,18 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   val current=++generation
   try{
    val rec=org.vosk.Recognizer(model,16000f)
+   offlineRecognizer=rec
    val service=org.vosk.android.SpeechService(rec,16000f)
    offlineSpeech=service
    report(if(sessionActive) "Escuchando conversación" else "En espera silenciosa de Jarvis")
    service.startListening(object:org.vosk.android.RecognitionListener{
-    override fun onPartialResult(hypothesis:String?){}
+    override fun onPartialResult(hypothesis:String?){handler.post{
+     if(!running || current!=generation || speaking)return@post
+     val partial=try{org.json.JSONObject(hypothesis.orEmpty()).optString("partial")}catch(_:Exception){""}
+     if(partial.isNotBlank() && pendingSpeech.isNotEmpty()){
+      flushSpeech?.let{handler.removeCallbacks(it);handler.postDelayed(it,3500)}
+     }
+    }}
     override fun onResult(hypothesis:String?){handler.post{
      if(!running || current!=generation || speaking)return@post
      val spoken=try{org.json.JSONObject(hypothesis.orEmpty()).optString("text").trim()}catch(_:Exception){""}
@@ -89,7 +98,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
      if(!sessionActive && match==null)return@post
      sessionActive=true;conversationUntil=System.currentTimeMillis()+180000L
      val phrase=(if(match!=null)spoken.substring(match.range.last+1)else spoken).trim()
-     if(phrase.isBlank()){generation++;stopOffline();say("Te escucho.");return@post}
+     if(phrase.isBlank()){if(pendingSpeech.isEmpty()){generation++;stopOffline();say("Te escucho.")};return@post}
      if(pendingSpeech.isNotEmpty())pendingSpeech.append(' ')
      pendingSpeech.append(phrase)
      flushSpeech?.let{handler.removeCallbacks(it)}
