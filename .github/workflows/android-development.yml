@@ -5,6 +5,7 @@ on:
     branches:
       - feature/jarvis-core-architecture-day02
       - feature/openai-bridge-20261123
+      - feature/jarvis-unified-20261124
     paths:
       - 'app/**'
       - '.github/workflows/android-development.yml'
