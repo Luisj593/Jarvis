@@ -14,6 +14,9 @@ def query(message, selected=""):
     for alias,target in aliases.items():msg=msg.replace(alias,target)
     matches=[k for k in allowed if re.search(r"\b"+k+r"\b",msg)]
     matches=[k for k in matches if not any(k!=other and k in other for other in matches)]
+    if any(x in msg for x in ("evalua","evaluacion","audita","auditoria","informe","diagnostico","que debemos corregir")):
+        from project_evaluation import evaluate
+        return evaluate(matches or ([normalize(selected)] if selected and "proyectos" not in msg and "todos" not in msg else []))
     if len(matches)>1:return {"text":"¿Cuál proyecto deseas consultar?","project":""}
     project=matches[0] if matches else normalize(selected)
     if "proyectos" in msg and any(x in msg for x in ("lista","cuales","tengo","muestra")):
