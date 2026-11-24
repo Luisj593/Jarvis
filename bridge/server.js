@@ -20,10 +20,20 @@ export function createServer({ apiKey = key, token = bridgeToken, fetcher = fetc
       res.end(JSON.stringify(data));
     };
     if (req.url === '/health' && req.method === 'GET') return send(200, { status: 'ok' });
-    if (req.url !== '/v1/command' || req.method !== 'POST') return send(404, { error: 'Not found' });
+    if (!['/v1/command','/v1/transcribe'].includes(req.url) || req.method !== 'POST') return send(404, { error: 'Not found' });
     if (!authorized(req.headers.authorization, token)) return send(401, { error: 'Unauthorized' });
     if (!apiKey) return send(503, { error: 'OpenAI is not configured' });
     try {
+      if (req.url === '/v1/transcribe') {
+        const chunks = []; let size = 0;
+        for await (const chunk of req) { size += chunk.length; if (size > 2000000) return send(413,{error:'Audio too large'}); chunks.push(chunk); }
+        const audio = Buffer.concat(chunks);
+        if (audio.length < 44 || audio.toString('ascii',0,4) !== 'RIFF' || audio.toString('ascii',8,12) !== 'WAVE') return send(400,{error:'Invalid WAV'});
+        const form = new FormData(); form.append('file',new Blob([audio],{type:'audio/wav'}),'speech.wav'); form.append('model','gpt-4o-mini-transcribe'); form.append('language','es');
+        const upstream = await fetcher('https://api.openai.com/v1/audio/transcriptions',{method:'POST',headers:{authorization:`Bearer ${apiKey}`},body:form,signal:AbortSignal.timeout(30000)});
+        if (!upstream.ok) return send(502,{error:'Transcription failed',upstream_status:upstream.status});
+        const result = await upstream.json(); return send(200,{text:typeof result.text==='string'?result.text:''});
+      }
       let body = '';
       for await (const chunk of req) {
         body += chunk.toString();
