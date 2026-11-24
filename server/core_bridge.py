@@ -23,6 +23,11 @@ def _services():
 
 def dispatch(method,path,data=None):
     """Retorna (status, JSON); no realiza ninguna acción externa."""
+    if method=="POST" and path=="/v1/core/projects/query":
+        from server.project_queries import query
+        data=data or {}
+        if not isinstance(data.get("message"),str) or not isinstance(data.get("project",""),str):return 400,{"error":"invalid_parameters"}
+        return 200,query(data["message"][:4000],data.get("project","")[:100])
     projects,responses,actions=_services()
     data=data or {}
     try:
