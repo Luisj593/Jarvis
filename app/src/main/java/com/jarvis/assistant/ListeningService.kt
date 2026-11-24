@@ -25,10 +25,13 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private val pendingSpeech=StringBuilder()
  private var flushSpeech:Runnable?=null
  private var sessionActive=false
- private val pauseBeforeProcessingMs=6500L
+ private val pauseBeforeProcessingMs=2400L
  private var speechInProgress=false
  private var generation=0
  private var pendingReply:String?=null
+ private var history=""
+ private var utterance=0
+ private var flushDeadline=0L
  private fun report(message:String){ android.util.Log.i("JarvisVoice",message); getSystemService(NotificationManager::class.java).notify(1,Notification.Builder(this,CHANNEL).setContentTitle("JARVIS").setContentText(message).setSmallIcon(android.R.drawable.ic_btn_speak_now).setOngoing(true).build()) }
  override fun onBind(intent:Intent?)=null
  override fun onCreate(){ super.onCreate(); tts=TextToSpeech(this,this) }
@@ -67,7 +70,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
     if(current!=generation || speaking || !running)return
     speechInProgress=false
     errors++
-    if(sessionActive && pendingSpeech.isNotEmpty()){flushSpeech?.let{handler.removeCallbacks(it)};val task=Runnable{finishSpeech()};flushSpeech=task;handler.postDelayed(task,pauseBeforeProcessingMs)}
+    if(sessionActive && pendingSpeech.isNotEmpty() && flushSpeech!=null){handler.removeCallbacks(flushSpeech!!);handler.postDelayed(flushSpeech!!,maxOf(0L,flushDeadline-SystemClock.elapsedRealtime()))}
     if(sessionActive && pendingSpeech.isNotEmpty() && flushSpeech!=null){
      retry(1400);return
     }
@@ -85,8 +88,9 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
     val match=Regex("\\b(?:jarvis|yarvis|yárvis|yervis)\\b",RegexOption.IGNORE_CASE).find(spoken)
     if(match!=null || (sessionActive && System.currentTimeMillis()<conversationUntil)){
      sessionActive=true
-     conversationUntil=System.currentTimeMillis()+60000L
+     conversationUntil=System.currentTimeMillis()+180000L
      val part=(if(match!=null)spoken.substring(match.range.last+1) else spoken).trim()
+     if(part.isBlank() && pendingSpeech.isEmpty()){generation++;recognizer?.cancel();say("Te escucho.");return}
      if(part.isNotBlank()){
       if(pendingSpeech.isNotEmpty())pendingSpeech.append(' ')
       pendingSpeech.append(part)
@@ -96,6 +100,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
      if(explicitEnd)finishSpeech() else {
       val task=Runnable{finishSpeech()}
       flushSpeech=task
+      flushDeadline=SystemClock.elapsedRealtime()+pauseBeforeProcessingMs
       handler.postDelayed(task,pauseBeforeProcessingMs)
       retry(900)
      }
@@ -115,7 +120,8 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   }catch(e:Exception){errors++;retry(minOf(15000L,2000L*minOf(errors,7)))}
  }
  private fun finishSpeech(){
-  if(!running || speaking || speechInProgress)return
+  if(!running || speaking)return
+  if(speechInProgress){flushDeadline=SystemClock.elapsedRealtime()+pauseBeforeProcessingMs;flushSpeech?.let{handler.postDelayed(it,pauseBeforeProcessingMs)};return}
   flushSpeech?.let{handler.removeCallbacks(it)}
   flushSpeech=null
   val phrase=pendingSpeech.toString().trim()
@@ -123,7 +129,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   pendingSpeech.setLength(0)
   if(phrase.isBlank()){retry(1500);return}
   sessionActive=true
-  conversationUntil=System.currentTimeMillis()+60000L
+  conversationUntil=System.currentTimeMillis()+180000L
      val prefs=getSharedPreferences("jarvis_lessons",MODE_PRIVATE)
      val lessons=prefs.getStringSet("lessons",emptySet()).orEmpty()
      val answer=when {
@@ -144,7 +150,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
        else {prefs.edit().putStringSet("lessons",lessons.minus(matching.toSet())).apply();"He olvidado "+matching.size+" enseñanza."}
       }
       phrase=="terminar conversación" || phrase=="termina la conversación" -> {
-       sessionActive=false;conversationUntil=0L
+       sessionActive=false;conversationUntil=0L;history=""
        "Conversación terminada. Di Jarvis para volver a hablar."
       }
       phrase=="hola" || phrase=="buenas" -> "Hola. Te escucho, ¿qué necesitas?"
@@ -165,20 +171,22 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
      if(answer==null){
       speaking=true
       thread {
-       val reply=try {JarvisOpenAi(this).ask("JARVIS",phrase)}
+       val previous=history
+       val reply=try {JarvisOpenAi(this).ask("JARVIS",phrase,previous)}
         catch(e:Exception){"No pude analizar la solicitud en este momento. Comprueba la conexión."}
-       handler.post {if(running){say(reply)}}
+       handler.post {if(running){history=(previous+"\nUsuario: "+phrase+"\nJARVIS: "+reply).takeLast(4000);say(reply)}}
       }
       return
      }
      say(answer)
  }
  private fun say(answer:String){
-     report("Respuesta disponible: "+answer.take(100))
+     report("Respondiendo por voz")
      if(ttsReady && tts!=null){
       speaking=true
-      val result=tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-reply")
-      if(result==TextToSpeech.ERROR){speaking=false;report("Error de voz: revisa el motor de síntesis");retry(600)} else handler.postDelayed({if(speaking){speaking=false;retry(700)}},maxOf(30000L,answer.length*150L))
+      val id=++utterance
+      val result=tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-$id")
+      if(result==TextToSpeech.ERROR){speaking=false;report("Error de voz: revisa el motor de síntesis");retry(600)} else handler.postDelayed({if(speaking && id==utterance){speaking=false;retry(700)}},maxOf(30000L,answer.length*150L))
      } else {pendingReply=answer; speaking=false; report("Motor de voz no disponible; revisa síntesis de voz");retry(600)}
  }
  private fun retry(delay:Long){
@@ -195,8 +203,8 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
    ttsReady=true
    tts?.setOnUtteranceProgressListener(object:UtteranceProgressListener(){
     override fun onStart(utteranceId:String?){}
-    override fun onDone(utteranceId:String?){handler.post {speaking=false;retry(350)}}
-    override fun onError(utteranceId:String?){handler.post {speaking=false;retry(700)}}
+    override fun onDone(utteranceId:String?){handler.post {if(utteranceId=="jarvis-$utterance"){speaking=false;if(sessionActive)conversationUntil=System.currentTimeMillis()+180000L;retry(350)}}}
+    override fun onError(utteranceId:String?){handler.post {if(utteranceId=="jarvis-$utterance"){speaking=false;retry(700)}}}
    })
    pendingReply?.let{pendingReply=null;say(it)}
   } else if(running) report("No se pudo iniciar el motor de voz")
