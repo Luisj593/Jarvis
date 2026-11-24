@@ -7,7 +7,7 @@ QUERY="""query ProjectStatus($id: String!) { project(id: $id) { name environment
 def status(project):
     pid=PROJECTS.get(project)
     if not pid:return "El proyecto de Railway todavía no está vinculado."
-    token=os.getenv("JARVIS_RAILWAY_READ_TOKEN","")
+    token=(os.getenv("JARVIS_RAILWAY_READ_TOKEN") or os.getenv("JARVIS_MONITOR_RAILWAY_TOKEN",""))
     if not token:return "Falta configurar el acceso de lectura a Railway."
     req=Request("https://backboard.railway.com/graphql/v2",data=json.dumps({"query":QUERY,"variables":{"id":pid}}).encode(),headers={"Authorization":"Bearer "+token,"Content-Type":"application/json"},method="POST")
     try:
