@@ -33,7 +33,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private var history=""
  private var utterance=0
  private var flushDeadline=0L
- private fun report(message:String){ android.util.Log.i("JarvisVoice",message); getSystemService(NotificationManager::class.java).notify(1,Notification.Builder(this,CHANNEL).setContentTitle("JARVIS").setContentText(message).setSmallIcon(android.R.drawable.ic_btn_speak_now).setOngoing(true).build()) }
+ private fun report(message:String){ getSharedPreferences("jarvis_status",MODE_PRIVATE).edit().putString("state",message).apply(); android.util.Log.i("JarvisVoice",message); getSystemService(NotificationManager::class.java).notify(1,Notification.Builder(this,CHANNEL).setContentTitle("JARVIS").setContentText(message).setSmallIcon(android.R.drawable.ic_btn_speak_now).setOngoing(true).build()) }
  override fun onBind(intent:Intent?)=null
  override fun onCreate(){ super.onCreate(); tts=TextToSpeech(this,this) }
  override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
@@ -89,7 +89,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private fun listenLocal(){
   if(!running || speaking)return
   if(sessionActive && System.currentTimeMillis()>=conversationUntil && pendingSpeech.isEmpty())sessionActive=false
-  if(!SpeechRecognizer.isRecognitionAvailable(this)){running=false;getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf();return}
+  if(!SpeechRecognizer.isRecognitionAvailable(this)){report("Reconocedor de voz no instalado");running=false;getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf();return}
   retryPending=false
   val current=++generation
   speechInProgress=false
@@ -209,6 +209,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
      retryPending=false
      recognizer?.cancel()
      if(answer==null){
+      report("Procesando tu solicitud")
       speaking=true
       thread {
        val previous=history
@@ -221,10 +222,12 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
      say(answer)
  }
  private fun say(answer:String){
+     getSharedPreferences("jarvis_status",MODE_PRIVATE).edit().putString("reply",answer.take(4000)).apply()
      report("Respondiendo por voz")
      if(ttsReady && tts!=null){
       speaking=true
       val id=++utterance
+      getSharedPreferences("jarvis_status",MODE_PRIVATE).edit().putString("reply",answer.take(4000)).apply()
       val result=tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-$id")
       if(result==TextToSpeech.ERROR){speaking=false;report("Error de voz: revisa el motor de síntesis");retry(600)} else handler.postDelayed({if(speaking && id==utterance){speaking=false;retry(700)}},maxOf(30000L,answer.length*150L))
      } else {pendingReply=answer; speaking=false; report("Motor de voz no disponible; revisa síntesis de voz");retry(600)}
@@ -251,7 +254,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  }
  private fun configureVoice(){
   val engine=tts ?: return
-  val british=false
+  val british=getSharedPreferences("jarvis_voice",MODE_PRIVATE).getString("profile","spanish")=="british"
   val target=if(british) Locale.UK else Locale("es","DO")
   val available=engine.isLanguageAvailable(target)
   if(available>=TextToSpeech.LANG_AVAILABLE){
@@ -267,5 +270,5 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   engine.setSpeechRate(if(british) 0.88f else 0.95f)
   engine.setPitch(if(british) 0.90f else 1.0f)
  }
- override fun onDestroy(){running=false;shutdown();super.onDestroy()}
+ override fun onDestroy(){running=false;shutdown();getSharedPreferences("jarvis_status",MODE_PRIVATE).edit().putString("state","Micrófono detenido").apply();super.onDestroy()}
 }
