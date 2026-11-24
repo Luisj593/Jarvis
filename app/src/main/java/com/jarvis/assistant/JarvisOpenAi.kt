@@ -43,7 +43,7 @@ class JarvisOpenAi(private val context:Context) {
   cipher.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,Base64.decode(prefs.getString("iv",null) ?: error("Sin token"),Base64.NO_WRAP)))
   return String(cipher.doFinal(Base64.decode(prefs.getString("token",null) ?: error("Sin token"),Base64.NO_WRAP)),StandardCharsets.UTF_8)
  }
- fun ask(project:String,instruction:String):String {
+ fun ask(project:String,instruction:String, history:String=""):String {
   require(project.length<=120 && instruction.isNotBlank() && instruction.length<=8000)
   val conn=URL("$BASE/v1/command").openConnection() as HttpURLConnection
   try {
@@ -51,7 +51,7 @@ class JarvisOpenAi(private val context:Context) {
    conn.instanceFollowRedirects=false;conn.doOutput=true
    conn.setRequestProperty("Authorization","Bearer "+token())
    conn.setRequestProperty("Content-Type","application/json; charset=utf-8")
-   val data=JSONObject().put("project",project).put("instruction",instruction).toString()
+   val data=JSONObject().put("project",project).put("instruction",instruction).put("history",history.takeLast(4000)).toString()
    conn.outputStream.use {it.write(data.toByteArray(StandardCharsets.UTF_8))}
    val status=conn.responseCode
    val response=(if(status in 200..299)conn.inputStream else conn.errorStream)
