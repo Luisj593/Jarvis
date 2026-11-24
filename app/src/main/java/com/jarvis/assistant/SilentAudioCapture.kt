@@ -18,6 +18,7 @@ class SilentAudioCapture {
   active=true
   val rate=16000
   var record:AudioRecord?=null
+  var completed:ByteArray?=null
   try {
    val min=AudioRecord.getMinBufferSize(rate,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT)
    require(min>0){"Formato de audio no disponible"}
@@ -47,14 +48,15 @@ class SilentAudioCapture {
     }else{
      speech.write(frame)
      quiet=if(loud)0 else quiet+1
-     if(quiet>=75 || speech.size()>=rate*2*45){
+     if(quiet>=125 || speech.size()>=rate*2*45){
       val pcm=speech.toByteArray();speech=null;voiced=0;quiet=0
-      if(pcm.size>rate/2 && active){onSpeech(wav(pcm,rate));break}
+      if(pcm.size>rate/2 && active){completed=wav(pcm,rate);break}
      }
     }
    }
   }catch(e:Exception){if(active)onError(e)}
   finally{active=false;recorder=null;try{record?.stop()}catch(_:Exception){};record?.release()}
+  completed?.let(onSpeech)
  }
  private fun wav(pcm:ByteArray,rate:Int):ByteArray{
   val b=ByteBuffer.allocate(44+pcm.size).order(ByteOrder.LITTLE_ENDIAN)
