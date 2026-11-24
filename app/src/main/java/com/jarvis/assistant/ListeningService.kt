@@ -33,7 +33,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private var history=""
  private var utterance=0
  private var flushDeadline=0L
- private fun report(message:String){ getSharedPreferences("jarvis_status",MODE_PRIVATE).edit().putString("state",message).apply(); android.util.Log.i("JarvisVoice",message); getSystemService(NotificationManager::class.java).notify(1,Notification.Builder(this,CHANNEL).setContentTitle("JARVIS").setContentText(message).setSmallIcon(android.R.drawable.ic_btn_speak_now).setOngoing(true).build()) }
+ private fun report(message:String){ getSharedPreferences("jarvis_status",MODE_PRIVATE).edit().putString("state",message).apply(); android.util.Log.i("JarvisVoice",message); getSystemService(NotificationManager::class.java).notify(1,Notification.Builder(this,CHANNEL).setContentTitle("JARVIS").setContentText(message).setSmallIcon(android.R.drawable.ic_btn_speak_now).setOngoing(true).setOnlyAlertOnce(true).addAction(Notification.Action.Builder(null,"Detener",PendingIntent.getService(this,1,Intent(this,ListeningService::class.java).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)).build()).build()) }
  override fun onBind(intent:Intent?)=null
  override fun onCreate(){ super.onCreate(); tts=TextToSpeech(this,this) }
  override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
@@ -280,9 +280,10 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       speaking=true
       thread {
        val previous=history
+       val requestGeneration=generation
        val reply=try {JarvisOpenAi(this).ask("JARVIS",phrase,previous)}
         catch(e:Exception){val detail=e.message.orEmpty();when {detail.contains("401")->"El token del puente no es válido. Configúralo en JARVIS.";detail.contains("503")->"El servidor no tiene configurada la clave de OpenAI.";detail.contains("502")->"El servidor no pudo obtener una respuesta de OpenAI.";else->"No pude conectar con el servidor. Revisa la conexión y la configuración del puente."}}
-       handler.post {if(running){history=(previous+"\nUsuario: "+phrase+"\nJARVIS: "+reply).takeLast(4000);say(reply)}}
+       handler.post {if(running && requestGeneration==generation){history=(previous+"\nUsuario: "+phrase+"\nJARVIS: "+reply).takeLast(4000);say(reply)}}
       }
       return
      }
@@ -290,13 +291,14 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  }
  private fun say(answer:String){
      getSharedPreferences("jarvis_status",MODE_PRIVATE).edit().putString("reply",answer.take(4000)).apply()
+     generation++;stopOffline();recognizer?.cancel();capture?.stop();capture=null
      report("Respondiendo por voz")
      if(ttsReady && tts!=null){
       speaking=true
       val id=++utterance
       getSharedPreferences("jarvis_status",MODE_PRIVATE).edit().putString("reply",answer.take(4000)).apply()
       val result=tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-$id")
-      if(result==TextToSpeech.ERROR){speaking=false;report("Error de voz: revisa el motor de síntesis");retry(600)} else handler.postDelayed({if(speaking && id==utterance){speaking=false;retry(700)}},maxOf(30000L,answer.length*150L))
+      if(result==TextToSpeech.ERROR){speaking=false;report("Error de voz: revisa el motor de síntesis");retry(600)} else handler.postDelayed({if(speaking && id==utterance){utterance++;tts?.stop();speaking=false;report("Tiempo de respuesta de voz agotado");retry(700)}},maxOf(30000L,answer.length*150L))
      } else {pendingReply=answer; speaking=false; report("Motor de voz no disponible; revisa síntesis de voz");retry(600)}
  }
  private fun retry(delay:Long){
@@ -308,6 +310,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  }
  private fun shutdown(){stopOffline();offlineModel?.close();offlineModel=null;capture?.stop();capture=null;generation++;speaking=false;retryPending=false;sessionActive=false;pendingSpeech.setLength(0);flushSpeech=null;handler.removeCallbacksAndMessages(null);recognizer?.cancel();recognizer?.destroy();recognizer=null;tts?.stop();tts?.shutdown();tts=null}
  override fun onInit(status:Int){
+  if(tts==null)return
   if(status==TextToSpeech.SUCCESS){
    configureVoice()
    ttsReady=true
@@ -316,7 +319,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
     override fun onDone(utteranceId:String?){handler.post {if(utteranceId=="jarvis-$utterance"){speaking=false;if(sessionActive)conversationUntil=System.currentTimeMillis()+180000L;retry(350)}}}
     override fun onError(utteranceId:String?){handler.post {if(utteranceId=="jarvis-$utterance"){speaking=false;retry(700)}}}
    })
-   pendingReply?.let{pendingReply=null;say(it)}
+   pendingReply?.let{pendingReply=null;if(running)say(it)}
   } else if(running) report("No se pudo iniciar el motor de voz")
  }
  private fun configureVoice(){
