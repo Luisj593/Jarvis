@@ -24,6 +24,12 @@ class MainActivity : Activity() {
  private val cyan=Color.rgb(0,220,255)
  private val violet=Color.rgb(159,65,255)
  private lateinit var status:TextView
+ private lateinit var voiceStatus:TextView
+ private val voicePrefs by lazy {getSharedPreferences("jarvis_status",MODE_PRIVATE)}
+ private val voiceListener=android.content.SharedPreferences.OnSharedPreferenceChangeListener {_,_->runOnUiThread {refreshVoiceStatus()}}
+ private fun refreshVoiceStatus(){if(::voiceStatus.isInitialized)voiceStatus.text=voicePrefs.getString("state","Micrófono detenido")}
+ override fun onResume(){super.onResume();voicePrefs.registerOnSharedPreferenceChangeListener(voiceListener);refreshVoiceStatus()}
+ override fun onPause(){voicePrefs.unregisterOnSharedPreferenceChangeListener(voiceListener);super.onPause()}
  private fun dp(v:Int)=(v*resources.displayMetrics.density).toInt()
  private fun rounded(stroke:Int=cyan):GradientDrawable =
   GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(Color.rgb(10,37,82),Color.rgb(10,12,45))).apply {
@@ -53,6 +59,9 @@ class MainActivity : Activity() {
    setPadding(dp(8),dp(4),dp(8),dp(16))
   }
   root.addView(status)
+  voiceStatus=text("Micrófono detenido",15f,cyan)
+  root.addView(voiceStatus)
+  root.addView(card("Última respuesta de voz","✧"){showInfo("JARVIS",voicePrefs.getString("reply","Sin respuesta todavía") ?: "Sin respuesta todavía")})
   val start=card("Hey Jarvis · Activar micrófono","🎙") { activate() }
   root.addView(start)
   val stop=card("Detener escucha","■") {
@@ -63,7 +72,7 @@ class MainActivity : Activity() {
   root.addView(card("Configurar voz de JARVIS","♫") {
    val profiles=arrayOf("Británica · estilo asistente","Español · pronunciación natural")
    val prefs=getSharedPreferences("jarvis_voice",MODE_PRIVATE)
-   val selected=if(prefs.getString("profile","british")=="british") 0 else 1
+   val selected=if(prefs.getString("profile","spanish")=="british") 0 else 1
    AlertDialog.Builder(this).setTitle("Voz de JARVIS")
     .setSingleChoiceItems(profiles,selected){dialog,which->
      prefs.edit().putString("profile",if(which==0)"british" else "spanish").apply()
