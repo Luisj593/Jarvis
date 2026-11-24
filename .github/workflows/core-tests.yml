@@ -1,7 +1,7 @@
 name: JARVIS Core Tests
 on:
   push:
-    branches: [feature/jarvis-core-architecture-day02, feature/jarvis-project-observability]
+    branches: [feature/jarvis-core-architecture-day02, feature/jarvis-project-observability, feature/jarvis-unified-20261124]
     paths:
       - 'core/**'
       - 'server/**'
@@ -21,3 +21,6 @@ jobs:
         run: python -m compileall -q core server
       - name: Run core unit tests
         run: PYTHONPATH=core python -m unittest discover -s core/tests -v
+
+      - name: Test project queries
+        run: PYTHONPATH=core:server python -m unittest discover -s server -p test_project_queries.py -v
