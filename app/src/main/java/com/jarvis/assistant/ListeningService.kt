@@ -25,7 +25,11 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private val pendingSpeech=StringBuilder()
  private var flushSpeech:Runnable?=null
  private var sessionActive=false
- private val pauseBeforeProcessingMs=4500L
+ private val pauseBeforeProcessingMs=6500L
+ private var speechInProgress=false
+ private var generation=0
+ private var pendingReply:String?=null
+ private fun report(message:String){ android.util.Log.i("JarvisVoice",message); getSystemService(NotificationManager::class.java).notify(1,Notification.Builder(this,CHANNEL).setContentTitle("JARVIS").setContentText(message).setSmallIcon(android.R.drawable.ic_btn_speak_now).setOngoing(true).build()) }
  override fun onBind(intent:Intent?)=null
  override fun onCreate(){ super.onCreate(); tts=TextToSpeech(this,this) }
  override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int{
@@ -47,18 +51,23 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   if(sessionActive && System.currentTimeMillis()>=conversationUntil && pendingSpeech.isEmpty())sessionActive=false
   if(!SpeechRecognizer.isRecognitionAvailable(this)){running=false;getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf();return}
   retryPending=false
+  val current=++generation
+  speechInProgress=false
   recognizer?.destroy()
   recognizer=if(Build.VERSION.SDK_INT>=31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this))
    SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
   else SpeechRecognizer.createSpeechRecognizer(this)
   recognizer?.setRecognitionListener(object:RecognitionListener{
    override fun onReadyForSpeech(params:Bundle?){}
-   override fun onBeginningOfSpeech(){}
+   override fun onBeginningOfSpeech(){if(current!=generation || speaking)return; speechInProgress=true;flushSpeech?.let{handler.removeCallbacks(it)}}
    override fun onRmsChanged(rmsdB:Float){}
    override fun onBufferReceived(buffer:ByteArray?){}
    override fun onEndOfSpeech(){}
    override fun onError(error:Int){
+    if(current!=generation || speaking || !running)return
+    speechInProgress=false
     errors++
+    if(sessionActive && pendingSpeech.isNotEmpty()){flushSpeech?.let{handler.removeCallbacks(it)};val task=Runnable{finishSpeech()};flushSpeech=task;handler.postDelayed(task,pauseBeforeProcessingMs)}
     if(sessionActive && pendingSpeech.isNotEmpty() && flushSpeech!=null){
      retry(1400);return
     }
@@ -69,9 +78,11 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
     retry(if(error==SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 3500L else minOf(15000L,2000L*minOf(errors,7)))
    }
    override fun onResults(results:Bundle?){
+    if(current!=generation || speaking || !running)return
+    speechInProgress=false
     errors=0
     val spoken=results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().trim()
-    val match=Regex("\\bjarvis\\b",RegexOption.IGNORE_CASE).find(spoken)
+    val match=Regex("\\b(?:jarvis|yarvis|yárvis|yervis)\\b",RegexOption.IGNORE_CASE).find(spoken)
     if(match!=null || (sessionActive && System.currentTimeMillis()<conversationUntil)){
      sessionActive=true
      conversationUntil=System.currentTimeMillis()+60000L
@@ -104,9 +115,10 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   }catch(e:Exception){errors++;retry(minOf(15000L,2000L*minOf(errors,7)))}
  }
  private fun finishSpeech(){
+  if(!running || speaking || speechInProgress)return
   flushSpeech?.let{handler.removeCallbacks(it)}
   flushSpeech=null
-  val phrase=pendingSpeech.toString().trim().lowercase(Locale.ROOT)
+  val phrase=pendingSpeech.toString().trim()
    .replace(Regex("(terminé|he terminado|eso es todo|ejecuta ahora)[.! ]*$"),"").trim()
   pendingSpeech.setLength(0)
   if(phrase.isBlank()){retry(1500);return}
@@ -140,11 +152,15 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       else -> {
        val tokens=phrase.split(Regex("\\s+")).filter { it.length>3 }.toSet()
        val match=lessons.map { lesson -> lesson to lesson.lowercase(Locale.ROOT).split(Regex("\\s+")).count { it in tokens } }.maxByOrNull { it.second }
-       if(match!=null && match.second>=2) "Según lo que me enseñaste: "+match.first
-       else if(JarvisOpenAi(this).configured()) null
+       if(JarvisOpenAi(this).configured()) null
+       else if(match!=null && match.second>=2) "Según lo que me enseñaste: "+match.first
        else "Todavía no tengo la conexión OpenAI configurada. Configúrala en la aplicación para analizar solicitudes abiertas."
       }
      }
+     speaking=true
+     generation++
+     handler.removeCallbacksAndMessages(null)
+     retryPending=false
      recognizer?.cancel()
      if(answer==null){
       speaking=true
@@ -158,11 +174,12 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
      say(answer)
  }
  private fun say(answer:String){
+     report("Respuesta disponible: "+answer.take(100))
      if(ttsReady && tts!=null){
       speaking=true
       val result=tts?.speak(answer,TextToSpeech.QUEUE_FLUSH,null,"jarvis-reply")
-      if(result==TextToSpeech.ERROR){speaking=false;retry(600)}
-     } else retry(600)
+      if(result==TextToSpeech.ERROR){speaking=false;report("Error de voz: revisa el motor de síntesis");retry(600)} else handler.postDelayed({if(speaking){speaking=false;retry(700)}},maxOf(30000L,answer.length*150L))
+     } else {pendingReply=answer; speaking=false; report("Motor de voz no disponible; revisa síntesis de voz");retry(600)}
  }
  private fun retry(delay:Long){
   if(!running || retryPending)return
@@ -181,11 +198,12 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
     override fun onDone(utteranceId:String?){handler.post {speaking=false;retry(350)}}
     override fun onError(utteranceId:String?){handler.post {speaking=false;retry(700)}}
    })
-  }
+   pendingReply?.let{pendingReply=null;say(it)}
+  } else if(running) report("No se pudo iniciar el motor de voz")
  }
  private fun configureVoice(){
   val engine=tts ?: return
-  val british=getSharedPreferences("jarvis_voice",MODE_PRIVATE).getString("profile","british")=="british"
+  val british=getSharedPreferences("jarvis_voice",MODE_PRIVATE).getString("profile","spanish")=="british"
   val target=if(british) Locale.UK else Locale("es","DO")
   val available=engine.isLanguageAvailable(target)
   if(available>=TextToSpeech.LANG_AVAILABLE){
@@ -196,7 +214,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
     .firstOrNull()
    if(selected!=null) engine.voice=selected
   }else{
-   engine.language=Locale("es","DO")
+   engine.language=Locale("es","ES")
   }
   engine.setSpeechRate(if(british) 0.88f else 0.95f)
   engine.setPitch(if(british) 0.90f else 1.0f)
