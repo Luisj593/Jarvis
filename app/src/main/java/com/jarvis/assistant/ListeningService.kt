@@ -56,12 +56,15 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
  private var offlineModel:org.vosk.Model?=null
  private var offlineSpeech:org.vosk.android.SpeechService?=null
  private var offlineRecognizer:org.vosk.Recognizer?=null
+ private var lastPartial=""
  private var offlineLoading=false
  private var offlineUnavailable=false
  private fun stopOffline(){
   offlineSpeech?.let{try{it.cancel();it.shutdown()}catch(_:Exception){}}
   offlineSpeech=null
-  offlineRecognizer?.close();offlineRecognizer=null
+  try{offlineRecognizer?.close()}catch(_:Exception){}
+  offlineRecognizer=null
+  lastPartial=""
  }
  private fun listenOffline(){
   if(!running || speaking || offlineSpeech!=null || offlineLoading)return
@@ -81,17 +84,19 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
    val service=org.vosk.android.SpeechService(rec,16000f)
    offlineSpeech=service
    report(if(sessionActive) "Escuchando conversación" else "En espera silenciosa de Jarvis")
-   service.startListening(object:org.vosk.android.RecognitionListener{
+   val started=service.startListening(object:org.vosk.android.RecognitionListener{
     override fun onPartialResult(hypothesis:String?){handler.post{
      if(!running || current!=generation || speaking)return@post
      val partial=try{org.json.JSONObject(hypothesis.orEmpty()).optString("partial")}catch(_:Exception){""}
-     if(partial.isNotBlank() && pendingSpeech.isNotEmpty()){
+     if(partial.isNotBlank() && partial!=lastPartial && pendingSpeech.isNotEmpty()){
       flushSpeech?.let{handler.removeCallbacks(it);handler.postDelayed(it,3500)}
      }
+     lastPartial=partial
     }}
     override fun onResult(hypothesis:String?){handler.post{
      if(!running || current!=generation || speaking)return@post
      val spoken=try{org.json.JSONObject(hypothesis.orEmpty()).optString("text").trim()}catch(_:Exception){""}
+     lastPartial=""
      if(spoken.isBlank())return@post
      if(System.currentTimeMillis()>=conversationUntil)sessionActive=false
      val match=Regex("\\b(?:jarvis|yarvis|yárvis|yervis|harvis)\\b",RegexOption.IGNORE_CASE).find(spoken)
@@ -109,7 +114,8 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
     override fun onError(exception:Exception?){handler.post{if(current==generation && running){generation++;stopOffline();offlineUnavailable=true;retry(500)}}}
     override fun onTimeout(){handler.post{if(current==generation && running){generation++;stopOffline();retry(500)}}}
    })
-  }catch(e:Exception){stopOffline();offlineUnavailable=true;retry(500)}
+   check(started){"No se pudo iniciar reconocimiento local"}
+  }catch(e:Exception){stopOffline();offlineUnavailable=true;report("Reconocimiento local no disponible");retry(500)}
  }
  private var localFallback=false
  private var capture:SilentAudioCapture?=null
