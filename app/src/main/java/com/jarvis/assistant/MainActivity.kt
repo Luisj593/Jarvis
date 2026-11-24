@@ -28,6 +28,12 @@ class MainActivity : Activity() {
  private val cyan=Color.rgb(0,220,255)
  private val violet=Color.rgb(159,65,255)
  private lateinit var status:TextView
+ private lateinit var voiceStatus:TextView
+ private val voicePrefs by lazy {getSharedPreferences("jarvis_status",MODE_PRIVATE)}
+ private val voiceListener=android.content.SharedPreferences.OnSharedPreferenceChangeListener {_,_->runOnUiThread {refreshVoiceStatus()}}
+ private fun refreshVoiceStatus(){if(::voiceStatus.isInitialized)voiceStatus.text=voicePrefs.getString("state","Micrófono detenido")}
+ override fun onResume(){super.onResume();voicePrefs.registerOnSharedPreferenceChangeListener(voiceListener);refreshVoiceStatus()}
+ override fun onPause(){voicePrefs.unregisterOnSharedPreferenceChangeListener(voiceListener);super.onPause()}
  private fun dp(v:Int)=(v*resources.displayMetrics.density).toInt()
  private fun rounded(stroke:Int=cyan):GradientDrawable =
   GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(Color.rgb(10,37,82),Color.rgb(10,12,45))).apply {
@@ -57,6 +63,9 @@ class MainActivity : Activity() {
    setPadding(dp(8),dp(4),dp(8),dp(16))
   }
   root.addView(status)
+  voiceStatus=text("Micrófono detenido",15f,cyan)
+  root.addView(voiceStatus)
+  root.addView(card("Última respuesta de voz","✧"){showInfo("JARVIS",voicePrefs.getString("reply","Sin respuesta todavía") ?: "Sin respuesta todavía")})
   val start=card("Hey Jarvis · Activar micrófono","🎙") { activate() }
   root.addView(start)
   val stop=card("Detener escucha","■") {
@@ -67,7 +76,7 @@ class MainActivity : Activity() {
   root.addView(card("Configurar voz de JARVIS","♫") {
    val profiles=arrayOf("Británica · estilo asistente","Español · pronunciación natural")
    val prefs=getSharedPreferences("jarvis_voice",MODE_PRIVATE)
-   val selected=if(prefs.getString("profile","british")=="british") 0 else 1
+   val selected=if(prefs.getString("profile","spanish")=="british") 0 else 1
    AlertDialog.Builder(this).setTitle("Voz de JARVIS")
     .setSingleChoiceItems(profiles,selected){dialog,which->
      prefs.edit().putString("profile",if(which==0)"british" else "spanish").apply()
@@ -84,6 +93,8 @@ class MainActivity : Activity() {
     }.show()
   })
   root.addView(card("Conectar Railway Development","☁") {configureApi()})
+  root.addView(card("Consultar proyectos por texto","◇"){askProject()})
+  root.addView(card("Configurar OpenAI opcional","⚡"){configureOpenAi()})
   root.addView(card("Investigar en internet","⌕") {researchOnline()})
   root.addView(card("Investigaciones programadas","◷") {researchSchedule()})
   root.addView(card("Historial de investigaciones","▤") {apiCall("/v1/core/research/history",null,"Historial")})
@@ -369,6 +380,55 @@ class MainActivity : Activity() {
      showInfo("Calendario","No hay una aplicación compatible para crear el evento.")
     }
    }.show()
+ }
+ private fun configureOpenAi(){
+  val field=EditText(this).apply {
+   hint="Token JARVIS_BRIDGE_TOKEN del servicio de pruebas"
+   inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+  }
+  AlertDialog.Builder(this).setTitle("Conexión OpenAI · pruebas")
+   .setMessage("Introduce el token de acceso del puente JARVIS (no la clave de OpenAI). Se almacena cifrado en Android. Esta integración es experimental y no autoriza cambios de producción.")
+   .setView(field).setNegativeButton("Cancelar",null)
+   .setNeutralButton("Eliminar"){_,_->JarvisOpenAi(this).clear();status.text="Token de pruebas eliminado"}
+   .setPositiveButton("Guardar"){_,_->
+    try {JarvisOpenAi(this).saveToken(field.text.toString().trim());status.text="Conexión de pruebas configurada"}
+    catch(e:Exception){status.text="No se pudo guardar el token de pruebas"}
+   }.show()
+ }
+ private fun askOpenAi(){
+  if(!JarvisOpenAi(this).configured()){
+   showInfo("Falta autenticación","Configura primero el token del puente OpenAI de pruebas.");return
+  }
+  val field=EditText(this).apply {hint="Describe qué necesitas";minLines=3}
+  AlertDialog.Builder(this).setTitle("Consultar OpenAI · pruebas").setView(field)
+   .setNegativeButton("Cancelar",null).setPositiveButton("Enviar"){_,_->
+    val message=field.text.toString().trim()
+    if(message.isBlank() || message.length>8000){
+     showInfo("Solicitud inválida","Escribe una solicitud de hasta 8000 caracteres.")
+    } else {
+     status.text="Consultando OpenAI…"
+     thread {
+      try {
+       val answer=JarvisOpenAi(this).ask("JARVIS",message)
+       runOnUiThread {status.text="Respuesta recibida";showInfo("OpenAI · JARVIS",answer.take(3500))}
+      } catch(e:Exception){
+       runOnUiThread {status.text="Error de conexión";showInfo("OpenAI no disponible",e.message?.take(200) ?: "Error desconocido")}
+      }
+     }
+    }
+   }.show()
+ }
+ private var selectedProject=""
+ private fun askProject(){
+  if(!JarvisApi(this).configured()){showInfo("Conexión requerida","Configura el token de Railway Development.");return}
+  prompt("Consultar proyectos","Escribe tu pregunta"){message->
+   thread {
+    try {
+     val result=JarvisApi(this).request("/v1/core/projects/query",JSONObject().put("message",message).put("project",selectedProject))
+     runOnUiThread {selectedProject=result.optString("project");showInfo("JARVIS",result.optString("text","Sin respuesta"))}
+    } catch(e:Exception){runOnUiThread {showInfo("JARVIS","No se pudo consultar el servidor.")}}
+   }
+  }
  }
  private fun configureApi(){
   val field=EditText(this).apply {hint="Token JARVIS_API_TOKEN";inputType=android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD;setSingleLine(true)}
