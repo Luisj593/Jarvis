@@ -27,7 +27,7 @@ export function createServer({ apiKey = key, token = bridgeToken, fetcher = fetc
       let body = '';
       for await (const chunk of req) {
         body += chunk.toString();
-        if (body.length > 32000) return send(413, { error: 'Request too large' });
+        if (body.length > 16000) return send(413, { error: 'Request too large' });
       }
       const { instruction, project, history } = JSON.parse(body);
       if (typeof instruction !== 'string' || !instruction.trim() || instruction.length > 8000 ||
