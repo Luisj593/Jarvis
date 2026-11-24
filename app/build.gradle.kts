@@ -10,9 +10,15 @@ android {
   applicationId = "com.jarvis.assistant"
   minSdk = 26
   targetSdk = 35
-  versionCode = 11
-  versionName = "1.1"
+  versionCode = 12
+  versionName = "1.2"
  }
 }
 
 kotlin { jvmToolchain(17) }
+
+dependencies {
+ testImplementation("junit:junit:4.13.2")
+ implementation("com.alphacephei:vosk-android:0.3.47")
+ implementation("net.java.dev.jna:jna:5.13.0@aar")
+}
