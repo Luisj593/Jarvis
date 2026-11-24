@@ -43,6 +43,19 @@ class JarvisOpenAi(private val context:Context) {
   cipher.init(Cipher.DECRYPT_MODE,key(),GCMParameterSpec(128,Base64.decode(prefs.getString("iv",null) ?: error("Sin token"),Base64.NO_WRAP)))
   return String(cipher.doFinal(Base64.decode(prefs.getString("token",null) ?: error("Sin token"),Base64.NO_WRAP)),StandardCharsets.UTF_8)
  }
+ fun transcribe(wav:ByteArray):String {
+  val conn=URL("$BASE/v1/transcribe").openConnection() as HttpURLConnection
+  try {
+   conn.requestMethod="POST";conn.connectTimeout=10000;conn.readTimeout=35000;conn.doOutput=true;conn.instanceFollowRedirects=false
+   conn.setRequestProperty("Authorization","Bearer "+token())
+   conn.setRequestProperty("Content-Type","audio/wav")
+   conn.setFixedLengthStreamingMode(wav.size)
+   conn.outputStream.use {it.write(wav)}
+   val status=conn.responseCode
+   if(status !in 200..299) error("Transcripción HTTP $status")
+   return JSONObject(conn.inputStream.bufferedReader().use {it.readText()}).optString("text")
+  } finally {conn.disconnect()}
+ }
  fun ask(project:String,instruction:String, history:String=""):String {
   require(project.length<=120 && instruction.isNotBlank() && instruction.length<=8000)
   val conn=URL("$BASE/v1/command").openConnection() as HttpURLConnection
