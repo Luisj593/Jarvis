@@ -42,7 +42,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   if(running)return START_STICKY
   getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",true).apply()
   running=true
-  localFallback=true
+  localFallback=false
   sessionActive=false
   conversationUntil=System.currentTimeMillis()+180000L
   val mgr=getSystemService(NotificationManager::class.java)
@@ -62,7 +62,9 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
    if(!JarvisOpenAi(this).configured() || System.currentTimeMillis()>=conversationUntil)sessionActive=false
    listenLocal();return
   }
-  val current=++generation
+  generation++
+  recognizer?.destroy();recognizer=null
+  val current=generation
   val engine=SilentAudioCapture()
   capture=engine
   report("Escuchando conversación")
@@ -84,7 +86,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
     }
    }
   }
-  handler.postDelayed({if(current==generation && capture===engine && System.currentTimeMillis()>=conversationUntil)engine.stop()},180000L)
+  handler.postDelayed({if(current==generation && capture===engine)engine.stop()},maxOf(1000L,conversationUntil-System.currentTimeMillis()))
  }
  private fun listenLocal(){
   if(!running || speaking)return
@@ -141,7 +143,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       flushSpeech=task
       flushDeadline=SystemClock.elapsedRealtime()+pauseBeforeProcessingMs
       handler.postDelayed(task,pauseBeforeProcessingMs)
-      retry(900)
+      if(localFallback || !JarvisOpenAi(this@ListeningService).configured())retry(900)
      }
     }else {sessionActive=false;retry(1800)}
    }
