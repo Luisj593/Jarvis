@@ -50,7 +50,7 @@ class JarvisApi(private val context: Context) {
   require(path.matches(Regex("^/v1/core/[a-zA-Z0-9/_-]{1,120}$"))){"Ruta inválida"}
   val conn=URL(BASE+path).openConnection() as HttpURLConnection
   try {
-   conn.connectTimeout=8000;conn.readTimeout=10000
+   conn.connectTimeout=8000;conn.readTimeout=if(path=="/v1/core/projects/query") 60000 else 10000
    conn.instanceFollowRedirects=false
    conn.setRequestProperty("Authorization","Bearer "+token())
    conn.setRequestProperty("Accept","application/json")
