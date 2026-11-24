@@ -25,7 +25,7 @@ def query(message, selected=""):
     if not any(x in msg for x in ("estado","error","fall","compil","prueba","avance","commit","cambio","revision")):
         return {"text":"Proyecto "+project+" seleccionado. Puedo consultar compilaciones y últimos cambios de GitHub.","project":project}
     if not allowed[project]:return {"text":"Este proyecto está registrado, pero su repositorio GitHub todavía no está vinculado.","project":project}
-    token=os.getenv("JARVIS_GITHUB_READ_TOKEN","")
+    token=(os.getenv("JARVIS_GITHUB_READ_TOKEN") or os.getenv("JARVIS_MONITOR_GITHUB_TOKEN",""))
     if not token:return {"text":"Falta configurar el acceso de lectura a GitHub en el servidor.","project":project}
     endpoint="actions/runs?per_page=5" if any(x in msg for x in ("estado","error","fall","compil","prueba","avance")) else "commits?per_page=1"
     req=Request("https://api.github.com/repos/"+allowed[project]+"/"+endpoint,headers={"Authorization":"Bearer "+token,"Accept":"application/vnd.github+json","User-Agent":"Jarvis-project-reader"})
