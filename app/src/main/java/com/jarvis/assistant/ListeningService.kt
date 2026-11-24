@@ -42,85 +42,50 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   if(running)return START_STICKY
   getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",true).apply()
   running=true
+  sessionActive=true
+  conversationUntil=System.currentTimeMillis()+180000L
   val mgr=getSystemService(NotificationManager::class.java)
   mgr.createNotificationChannel(NotificationChannel(CHANNEL,"Micrófono de JARVIS",NotificationManager.IMPORTANCE_LOW))
   val stopIntent=PendingIntent.getService(this,1,Intent(this,ListeningService::class.java).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-  val notification=Notification.Builder(this,CHANNEL).setContentTitle("JARVIS escuchando").setContentText("Micrófono activo. Di Jarvis para hablar.").setSmallIcon(android.R.drawable.ic_btn_speak_now).setOngoing(true).addAction(Notification.Action.Builder(null,"Detener",stopIntent).build()).build()
+  val notification=Notification.Builder(this,CHANNEL).setContentTitle("JARVIS escuchando").setContentText("Conversación activa: el audio de voz se envía al servidor.").setSmallIcon(android.R.drawable.ic_btn_speak_now).setOngoing(true).addAction(Notification.Action.Builder(null,"Detener",stopIntent).build()).build()
   if(Build.VERSION.SDK_INT>=29) startForeground(1,notification,ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE) else startForeground(1,notification)
   handler.post { listen() }
   return START_STICKY
  }
+ private var capture:SilentAudioCapture?=null
  private fun listen(){
-  if(!running || speaking)return
-  if(sessionActive && System.currentTimeMillis()>=conversationUntil && pendingSpeech.isEmpty())sessionActive=false
-  if(!SpeechRecognizer.isRecognitionAvailable(this)){running=false;getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf();return}
+  if(!running || speaking || capture!=null)return
   retryPending=false
+  if(!sessionActive || System.currentTimeMillis()>=conversationUntil){
+   sessionActive=false
+   report("Conversación cerrada. Activa el micrófono desde JARVIS.")
+   getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply()
+   stopSelf();return
+  }
+  if(!JarvisOpenAi(this).configured()){report("Configura el token del puente en JARVIS");stopSelf();return}
   val current=++generation
-  speechInProgress=false
-  recognizer?.destroy()
-  recognizer=if(useDeviceRecognition && Build.VERSION.SDK_INT>=31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this))
-   SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
-  else SpeechRecognizer.createSpeechRecognizer(this)
-  recognizer?.setRecognitionListener(object:RecognitionListener{
-   override fun onReadyForSpeech(params:Bundle?){if(current==generation)report(if(sessionActive) "Escuchando conversación" else "En espera de Jarvis")}
-   override fun onBeginningOfSpeech(){if(current!=generation || speaking)return; speechInProgress=true;flushSpeech?.let{handler.removeCallbacks(it)}}
-   override fun onRmsChanged(rmsdB:Float){}
-   override fun onBufferReceived(buffer:ByteArray?){}
-   override fun onEndOfSpeech(){}
-   override fun onError(error:Int){
-    if(current!=generation || speaking || !running)return
-    speechInProgress=false
-    errors++
-    report("Reconocimiento Android: código $error")
-    if(error==12 || error==13 || (errors>=3 && error!=SpeechRecognizer.ERROR_NO_MATCH && error!=SpeechRecognizer.ERROR_SPEECH_TIMEOUT))useDeviceRecognition=false
-    if(sessionActive && pendingSpeech.isNotEmpty() && flushSpeech!=null){handler.removeCallbacks(flushSpeech!!);handler.postDelayed(flushSpeech!!,maxOf(0L,flushDeadline-SystemClock.elapsedRealtime()))}
-    if(sessionActive && pendingSpeech.isNotEmpty() && flushSpeech!=null){
-     retry(1400);return
+  val engine=SilentAudioCapture()
+  capture=engine
+  report("Escuchando conversación")
+  thread {
+   var audio:ByteArray?=null
+   var failure:Exception?=null
+   engine.capture({audio=it},{failure=it})
+   val wav=audio
+   val spoken=if(wav!=null)try{JarvisOpenAi(this).transcribe(wav)}catch(e:Exception){failure=e;null}else null
+   handler.post {
+    if(current==generation && running){
+     capture=null
+     if(failure!=null){report("Error de audio: "+(failure?.message?:"desconocido").take(100));retry(3000)}
+     else if(!spoken.isNullOrBlank()){
+      val phrase=spoken.trim().replace(Regex("^\\s*(?:hey\\s+)?(?:jarvis|yarvis|yárvis)[,.:! ]*",RegexOption.IGNORE_CASE),"").trim()
+      conversationUntil=System.currentTimeMillis()+180000L
+      if(phrase.isBlank())say("Te escucho.") else {pendingSpeech.append(phrase);finishSpeech()}
+     }else retry(300)
     }
-    if(error==SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS){
-     running=false;getSharedPreferences("jarvis_service",MODE_PRIVATE).edit().putBoolean("enabled",false).apply();stopSelf();return
-    }
-    // Avoid rapid recognizer restarts, which can produce repeated system tones.
-    retry(if(error==SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 3500L else minOf(15000L,2000L*minOf(errors,7)))
    }
-   override fun onResults(results:Bundle?){
-    if(current!=generation || speaking || !running)return
-    speechInProgress=false
-    errors=0
-    val spoken=results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty().trim()
-    val match=Regex("\\b(?:jarvis|yarvis|yárvis|yervis)\\b",RegexOption.IGNORE_CASE).find(spoken)
-    if(match!=null || (sessionActive && System.currentTimeMillis()<conversationUntil)){
-     sessionActive=true
-     conversationUntil=System.currentTimeMillis()+180000L
-     val part=(if(match!=null)spoken.substring(match.range.last+1) else spoken).trim()
-     if(part.isBlank() && pendingSpeech.isEmpty()){generation++;recognizer?.cancel();say("Te escucho.");return}
-     if(part.isNotBlank()){
-      if(pendingSpeech.isNotEmpty())pendingSpeech.append(' ')
-      pendingSpeech.append(part)
-     }
-     flushSpeech?.let{handler.removeCallbacks(it)}
-     val explicitEnd=Regex("(terminé|he terminado|eso es todo|ejecuta ahora)[.! ]*$",RegexOption.IGNORE_CASE).containsMatchIn(pendingSpeech.toString())
-     if(explicitEnd)finishSpeech() else {
-      val task=Runnable{finishSpeech()}
-      flushSpeech=task
-      flushDeadline=SystemClock.elapsedRealtime()+pauseBeforeProcessingMs
-      handler.postDelayed(task,pauseBeforeProcessingMs)
-      retry(900)
-     }
-    }else {sessionActive=false;retry(1800)}
-   }
-   override fun onPartialResults(partialResults:Bundle?){}
-   override fun onEvent(eventType:Int,params:Bundle?){}
-  })
-  try{
-   lastStart=System.currentTimeMillis()
-   recognizer?.startListening(Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply{
-    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-    putExtra(RecognizerIntent.EXTRA_LANGUAGE,if(useDeviceRecognition) "es-ES" else "es-DO")
-    putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,false)
-    putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE,packageName)
-   })
-  }catch(e:Exception){errors++;retry(minOf(15000L,2000L*minOf(errors,7)))}
+  }
+  handler.postDelayed({if(current==generation && capture===engine && System.currentTimeMillis()>=conversationUntil)engine.stop()},180000L)
  }
  private fun finishSpeech(){
   if(!running || speaking)return
@@ -155,7 +120,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
       }
       normalized=="terminar conversación" || normalized=="termina la conversación" -> {
        sessionActive=false;conversationUntil=0L;history=""
-       "Conversación terminada. Di Jarvis para volver a hablar."
+       "Conversación terminada. Activa el micrófono para volver a hablar."
       }
       normalized=="hola" || normalized=="buenas" -> "Hola. Te escucho, ¿qué necesitas?"
       phrase.isBlank() -> "Aquí estoy. Puedes continuar hablando."
@@ -200,7 +165,7 @@ class ListeningService: Service(), TextToSpeech.OnInitListener {
   val safeDelay=maxOf(delay,1200L-sinceStart)
   handler.postDelayed({retryPending=false;if(running && !speaking)listen()},safeDelay)
  }
- private fun shutdown(){speaking=false;retryPending=false;sessionActive=false;pendingSpeech.setLength(0);flushSpeech=null;handler.removeCallbacksAndMessages(null);recognizer?.cancel();recognizer?.destroy();recognizer=null;tts?.stop();tts?.shutdown();tts=null}
+ private fun shutdown(){capture?.stop();capture=null;generation++;speaking=false;retryPending=false;sessionActive=false;pendingSpeech.setLength(0);flushSpeech=null;handler.removeCallbacksAndMessages(null);recognizer?.cancel();recognizer?.destroy();recognizer=null;tts?.stop();tts?.shutdown();tts=null}
  override fun onInit(status:Int){
   if(status==TextToSpeech.SUCCESS){
    configureVoice()
