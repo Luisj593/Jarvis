@@ -1,11 +1,16 @@
 name: JARVIS APK desarrollo
 on:
+  workflow_dispatch:
   push:
     branches:
       - feature/jarvis-core-architecture-day02
+      - feature/openai-bridge-20261123
     paths:
       - 'app/**'
       - '.github/workflows/android-development.yml'
+concurrency:
+  group: jarvis-development-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,10 +29,36 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Preparar modelo local español
+        run: |
+          curl --fail --location --retry 3 https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip -o /tmp/vosk-es.zip
+          unzip -q /tmp/vosk-es.zip -d /tmp/vosk-es
+          mkdir -p app/src/main/assets
+          mv /tmp/vosk-es/vosk-model-small-es-0.42 app/src/main/assets/model-es
+          echo 'vosk-small-es-0.42' > app/src/main/assets/model-es/uuid
+      - name: Pruebas de regresión conversacional
+        run: gradle :app:testDebugUnitTest --console=plain --no-daemon
       - name: Compilar APK
         run: gradle :app:assembleDebug --console=plain --no-daemon
       - name: Validar APK
-        run: test -s app/build/outputs/apk/debug/app-debug.apk
+        run: |
+          python3 - <<'PY'
+          import zipfile
+          p = 'app/build/outputs/apk/debug/app-debug.apk'
+          with zipfile.ZipFile(p) as z:
+              names = set(z.namelist())
+              assert z.testzip() is None, 'APK corrupta'
+              for required in ['AndroidManifest.xml','classes.dex','assets/model-es/uuid','assets/model-es/am/final.mdl','assets/model-es/conf/model.conf']:
+                  assert required in names, f'Falta {required}'
+              assert any(n.startswith('lib/') and n.endswith('/libvosk.so') for n in names), 'Falta biblioteca Vosk'
+          print('APK y modelo local verificados')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: conversation-test-results
+          path: app/build/test-results/testDebugUnitTest/
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         with:
           name: JARVIS-Neon-Android-debug
